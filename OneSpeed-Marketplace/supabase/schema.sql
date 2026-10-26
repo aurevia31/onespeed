@@ -1,5 +1,23 @@
 -- OneSpeed Marketplace production foundation for Supabase PostgreSQL.
 -- Run in Supabase SQL Editor. Review the policies and configure the first admin manually.
+begin;
+
+do $$
+begin
+  if exists (
+    select 1
+    from unnest(array[
+      'profiles', 'seller_profiles', 'categories', 'products', 'delivery_zones',
+      'orders', 'order_items', 'bank_transfer_submissions', 'seller_payouts',
+      'reviews', 'support_tickets', 'audit_logs'
+    ]) as required_table(name)
+    where to_regclass(format('public.%I', required_table.name)) is not null
+  ) then
+    raise exception 'OneSpeed core tables already exist. Do not rerun the base schema; inspect the project and apply only missing migrations.';
+  end if;
+end;
+$$;
+
 create extension if not exists pgcrypto;
 
 create type public.app_role as enum ('customer','seller','admin');
@@ -424,3 +442,5 @@ grant execute on function public.admin_review_bank_transfer(uuid,boolean,text) t
 -- Secure setup: after signing up, promote the intended platform administrator manually in SQL Editor:
 -- update public.profiles set role='admin' where id=(select id from auth.users where email='YOUR-ADMIN-EMAIL');
 -- Never put a service_role key in browser code. Configure Auth redirect URLs and SMTP before launch.
+
+commit;

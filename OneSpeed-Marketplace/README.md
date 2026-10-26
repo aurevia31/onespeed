@@ -13,10 +13,9 @@ Open `http://localhost:8080`. Without Supabase configured, the original local de
 ## Supabase setup
 
 1. Create a Supabase project and configure Authentication email confirmation, password rules, production Site URL, redirect URLs and SMTP.
-2. In Supabase SQL Editor, run `supabase/schema.sql` in one go. It creates profiles, seller stores/applications, categories, products, orders, order items, bank transfer submissions, seller payouts, reviews, support tickets, audit logs, RLS policies, storage buckets, and transactional RPCs.
-   Then run `supabase/marketplace-operations-migration.sql` for both fresh and existing projects. It adds persistent customer addresses, wishlist and notifications; order history; review moderation; support operations; audited payouts; product full-text search; and seller-visible product moderation notes.
-   On an existing project, apply any missing delivery-zone migration, then `supabase/auth-onboarding-migration.sql`, then `supabase/marketplace-operations-migration.sql`. Review and test migrations in staging before production.
-3. For local static preview, the Supabase configuration can be entered in `js/supabase-config.js`. For Docker or Render, use the runtime environment variables described below instead:
+2. For a **new, empty project**, open that project's SQL Editor and run `supabase/schema.sql`, followed by `supabase/marketplace-operations-migration.sql`. This creates the core tables (including `public.products`), RLS policies, storage buckets, and marketplace RPCs. Do not run the base schema against an already initialized project: it creates enums and tables that may already exist.
+3. For an **existing project**, first verify that Render points to the intended Supabase project. If the project is intentionally empty and the core tables (`profiles`, `categories`, `products`, `orders`, and related marketplace tables) are absent, run `supabase/schema.sql`, then `supabase/marketplace-operations-migration.sql`. The base schema now runs transactionally and aborts before making changes if any OneSpeed core table already exists. If the project contains a partial or existing OneSpeed schema, do not run the base schema; inspect its objects and apply only appropriate missing migrations in order: `supabase/delivery-zones-migration.sql`, `supabase/auth-onboarding-migration.sql`, and `supabase/marketplace-operations-migration.sql`. Review and test migrations in staging before production; never reset or drop production data to address a missing table.
+4. For local static preview, the Supabase configuration can be entered in `js/supabase-config.js`. For Docker or Render, use the runtime environment variables described below instead:
 
    ```js
    window.ONESPEED_SUPABASE_CONFIG = {
@@ -26,8 +25,8 @@ Open `http://localhost:8080`. Without Supabase configured, the original local de
    ```
 
    Never use a `service_role` key in browser code or commit private secrets.
-4. Customers can register and shop without administrator approval. Customers submit seller applications from `/seller.html`; approval is required before seller-only actions, and database RLS enforces that gate.
-5. Promote the first administrator from SQL Editor after the intended admin has created and verified their Supabase Auth account (replace the email). This is a trusted, one-time operator action; never expose this operation to browser users:
+5. Customers can register and shop without administrator approval. Customers submit seller applications from `/seller.html`; approval is required before seller-only actions, and database RLS enforces that gate.
+6. Promote the first administrator from SQL Editor after the intended admin has created and verified their Supabase Auth account (replace the email). This is a trusted, one-time operator action; never expose this operation to browser users:
 
    ```sql
    update public.profiles
@@ -35,8 +34,8 @@ Open `http://localhost:8080`. Without Supabase configured, the original local de
    where id = (select id from auth.users where email = 'YOUR-ADMIN-EMAIL');
    ```
 
-6. Configure bank-transfer instructions through your trusted business process before accepting payments. This repo intentionally does not invent bank details. Transfer submissions remain unpaid until an admin verifies the money has actually arrived and approves the submission in `admin/bank-transfers.html`.
-7. Set up production hosting with HTTPS, correct SPA/static routes, security headers, monitoring, backups and a verified domain.
+7. Configure bank-transfer instructions through your trusted business process before accepting payments. This repo intentionally does not invent bank details. Transfer submissions remain unpaid until an admin verifies the money has actually arrived and approves the submission in `admin/bank-transfers.html`.
+8. Set up production hosting with HTTPS, correct SPA/static routes, security headers, monitoring, backups and a verified domain.
 
 ## Deploy to Render
 

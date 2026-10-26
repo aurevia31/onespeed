@@ -132,6 +132,15 @@
     let catalogHasMore = false;
     let catalogRequest = 0;
 
+    function catalogLoadErrorMessage(error) {
+      const message = error?.message || 'Please try again.';
+      if (error?.code === 'PGRST205' || error?.code === '42P01'
+        || /could not find the table .* in the schema cache/i.test(message)) {
+        return 'The connected Supabase project is missing the marketplace products table. Verify Render points to the intended project. For a new empty project, apply supabase/schema.sql and then supabase/marketplace-operations-migration.sql; for an existing project, apply only the missing schema changes.';
+      }
+      return `Could not load marketplace products: ${message}`;
+    }
+
     function renderProducts(reset = false) {
       if (reset) {
         page = 0;
@@ -209,8 +218,9 @@
         renderProducts(reset);
       } catch (error) {
         if (requestId !== catalogRequest) return;
+        console.error('OneSpeed: marketplace catalog request failed.', error);
         const grid = document.getElementById('product-grid');
-        grid.innerHTML = `<p class="page-state" role="alert">Could not load marketplace products: ${escapeHTML(error.message || 'Please try again.')}</p>`;
+        grid.innerHTML = `<p class="page-state" role="alert">${escapeHTML(catalogLoadErrorMessage(error))}</p>`;
         document.getElementById('load-more-wrap').style.display = 'none';
       } finally {
         if (requestId === catalogRequest) button.disabled = false;
@@ -284,10 +294,9 @@
           document.getElementById('catalog-result-count').textContent =
             `${catalogTotal} matching product${catalogTotal === 1 ? '' : 's'}`;
         } catch (error) {
+          console.error('OneSpeed: marketplace initialization failed.', error);
           document.getElementById('product-grid').innerHTML = `
-            <p class="text-center" style="grid-column:1/-1;padding:40px;">
-              Could not load marketplace products: ${escapeHTML(error.message)}
-            </p>`;
+            <p class="page-state" role="alert">${escapeHTML(catalogLoadErrorMessage(error))}</p>`;
           return;
         }
       }

@@ -218,6 +218,23 @@ test('catalog filters are wired and product metrics are not fabricated', () => {
   assert.doesNotMatch(productDetail, /\$\{p\.rating\s*\|\|\s*4\.5\}/);
 });
 
+test('catalog reports actionable Supabase schema setup when the products table is missing', () => {
+  const homepage = read('index.html');
+  assert.match(homepage, /function catalogLoadErrorMessage\(error\)/);
+  assert.match(homepage, /error\?\.code === 'PGRST205' \|\| error\?\.code === '42P01'/);
+  assert.match(homepage, /For a new empty project, apply supabase\/schema\.sql and then supabase\/marketplace-operations-migration\.sql/);
+  assert.match(homepage, /console\.error\('OneSpeed: marketplace initialization failed\.'/);
+});
+
+test('base database schema is transactional and refuses to rerun when OneSpeed core tables already exist', () => {
+  const schema = read('supabase/schema.sql');
+  assert.match(schema, /^--[^\n]+\n--[^\n]+\nbegin;/);
+  assert.match(schema, /to_regclass\(format\('public\.%I', required_table\.name\)\) is not null/);
+  assert.match(schema, /OneSpeed core tables already exist\. Do not rerun the base schema/);
+  assert.match(schema.trimEnd(), /commit;$/);
+  assert.doesNotMatch(schema, /\b(drop table|truncate|delete from public\.)\b/i);
+});
+
 test('catalog price, currency, availability, and sorting filters affect actual products', () => {
   const source = read('index.html');
   const applyFilters = source.match(/function applyFilters\(\) \{[\s\S]*?\n    \}/)?.[0];
