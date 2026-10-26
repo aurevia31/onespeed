@@ -218,11 +218,13 @@ test('catalog filters are wired and product metrics are not fabricated', () => {
   assert.doesNotMatch(productDetail, /\$\{p\.rating\s*\|\|\s*4\.5\}/);
 });
 
-test('catalog reports actionable Supabase schema setup when the products table is missing', () => {
+test('catalog reports a safe actionable error without exposing Supabase details or recommending unsafe setup', () => {
   const homepage = read('index.html');
   assert.match(homepage, /function catalogLoadErrorMessage\(error\)/);
   assert.match(homepage, /error\?\.code === 'PGRST205' \|\| error\?\.code === '42P01'/);
-  assert.match(homepage, /For a new empty project, apply supabase\/schema\.sql and then supabase\/marketplace-operations-migration\.sql/);
+  assert.match(homepage, /Data API schema exposure, permissions, and schema cache before making database changes/);
+  assert.doesNotMatch(homepage, /For a new empty project, apply supabase\/schema\.sql/);
+  assert.match(homepage, /Could not load marketplace products right now\. Please try again later\./);
   assert.match(homepage, /console\.error\('OneSpeed: marketplace initialization failed\.'/);
 });
 
@@ -233,6 +235,24 @@ test('base database schema is transactional and refuses to rerun when OneSpeed c
   assert.match(schema, /OneSpeed core tables already exist\. Do not rerun the base schema/);
   assert.match(schema.trimEnd(), /commit;$/);
   assert.doesNotMatch(schema, /\b(drop table|truncate|delete from public\.)\b/i);
+});
+
+test('production database inspection script contains only read-only queries', () => {
+  const inspection = read('supabase/production-read-only-inspection.sql');
+  const uncommented = inspection.replace(/--[^\n]*/g, '');
+  const statements = uncommented.split(';').map(statement => statement.trim()).filter(Boolean);
+
+  assert.ok(statements.length >= 14, 'inspection should cover all numbered catalog checks');
+  for (const statement of statements) {
+    assert.match(statement, /^(select|with)\b/i, 'each executable statement must be a SELECT/CTE');
+  }
+  assert.match(inspection, /information_schema\.columns/);
+  assert.match(inspection, /pg_policies/);
+  assert.match(inspection, /pg_get_triggerdef/);
+  assert.match(inspection, /pg_get_functiondef/);
+  assert.match(inspection, /has_table_privilege/);
+  assert.match(inspection, /storage\.buckets/);
+  assert.doesNotMatch(uncommented, /\b(begin|commit|insert|update|delete|alter|create|drop|truncate|grant|revoke|notify)\b/i);
 });
 
 test('catalog price, currency, availability, and sorting filters affect actual products', () => {

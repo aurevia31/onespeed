@@ -133,12 +133,12 @@
     let catalogRequest = 0;
 
     function catalogLoadErrorMessage(error) {
-      const message = error?.message || 'Please try again.';
+      const message = error?.message || '';
       if (error?.code === 'PGRST205' || error?.code === '42P01'
         || /could not find the table .* in the schema cache/i.test(message)) {
-        return 'The connected Supabase project is missing the marketplace products table. Verify Render points to the intended project. For a new empty project, apply supabase/schema.sql and then supabase/marketplace-operations-migration.sql; for an existing project, apply only the missing schema changes.';
+        return 'The marketplace catalog is temporarily unavailable. The database administrator should verify the connected Supabase project, products table, Data API schema exposure, permissions, and schema cache before making database changes.';
       }
-      return `Could not load marketplace products: ${message}`;
+      return 'Could not load marketplace products right now. Please try again later.';
     }
 
     function renderProducts(reset = false) {

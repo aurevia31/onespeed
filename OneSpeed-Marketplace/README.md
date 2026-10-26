@@ -13,9 +13,10 @@ Open `http://localhost:8080`. Without Supabase configured, the original local de
 ## Supabase setup
 
 1. Create a Supabase project and configure Authentication email confirmation, password rules, production Site URL, redirect URLs and SMTP.
-2. For a **new, empty project**, open that project's SQL Editor and run `supabase/schema.sql`, followed by `supabase/marketplace-operations-migration.sql`. This creates the core tables (including `public.products`), RLS policies, storage buckets, and marketplace RPCs. Do not run the base schema against an already initialized project: it creates enums and tables that may already exist.
-3. For an **existing project**, first verify that Render points to the intended Supabase project. If the project is intentionally empty and the core tables (`profiles`, `categories`, `products`, `orders`, and related marketplace tables) are absent, run `supabase/schema.sql`, then `supabase/marketplace-operations-migration.sql`. The base schema now runs transactionally and aborts before making changes if any OneSpeed core table already exists. If the project contains a partial or existing OneSpeed schema, do not run the base schema; inspect its objects and apply only appropriate missing migrations in order: `supabase/delivery-zones-migration.sql`, `supabase/auth-onboarding-migration.sql`, and `supabase/marketplace-operations-migration.sql`. Review and test migrations in staging before production; never reset or drop production data to address a missing table.
-4. For local static preview, the Supabase configuration can be entered in `js/supabase-config.js`. For Docker or Render, use the runtime environment variables described below instead:
+2. Before installing or repairing any production schema, follow [Safe production database inspection and recovery](#safe-production-database-inspection-and-recovery). Do not infer that the database is empty from a failed product query.
+3. For a **new, verified empty project only**, open that project's SQL Editor and run `supabase/schema.sql`, followed by `supabase/marketplace-operations-migration.sql`. The base schema has a transaction and aborts before making changes if any OneSpeed core table exists. Do not run it on an existing or partially initialized project.
+4. For an existing project, inspect its objects first and use only a migration reviewed for that exact state. The delivery-zone, auth-onboarding, and marketplace-operations scripts are not a universal repair for an unknown partial schema; each has prerequisites.
+5. For local static preview, the Supabase configuration can be entered in `js/supabase-config.js`. For Docker or Render, use the runtime environment variables described below instead:
 
    ```js
    window.ONESPEED_SUPABASE_CONFIG = {
@@ -25,8 +26,8 @@ Open `http://localhost:8080`. Without Supabase configured, the original local de
    ```
 
    Never use a `service_role` key in browser code or commit private secrets.
-5. Customers can register and shop without administrator approval. Customers submit seller applications from `/seller.html`; approval is required before seller-only actions, and database RLS enforces that gate.
-6. Promote the first administrator from SQL Editor after the intended admin has created and verified their Supabase Auth account (replace the email). This is a trusted, one-time operator action; never expose this operation to browser users:
+6. Customers can register and shop without administrator approval. Customers submit seller applications from `/seller.html`; approval is required before seller-only actions, and database RLS enforces that gate.
+7. Promote the first administrator from SQL Editor after the intended admin has created and verified their Supabase Auth account (replace the email). This is a trusted, one-time operator action; never expose this operation to browser users:
 
    ```sql
    update public.profiles
@@ -34,8 +35,27 @@ Open `http://localhost:8080`. Without Supabase configured, the original local de
    where id = (select id from auth.users where email = 'YOUR-ADMIN-EMAIL');
    ```
 
-7. Configure bank-transfer instructions through your trusted business process before accepting payments. This repo intentionally does not invent bank details. Transfer submissions remain unpaid until an admin verifies the money has actually arrived and approves the submission in `admin/bank-transfers.html`.
-8. Set up production hosting with HTTPS, correct SPA/static routes, security headers, monitoring, backups and a verified domain.
+8. Configure bank-transfer instructions through your trusted business process before accepting payments. This repo intentionally does not invent bank details. Transfer submissions remain unpaid until an admin verifies the money has actually arrived and approves the submission in `admin/bank-transfers.html`.
+9. Set up production hosting with HTTPS, correct SPA/static routes, security headers, monitoring, backups and a verified domain.
+
+### Safe production database inspection and recovery
+
+The storefront reads active rows from `public.products` through the Supabase Data API, selecting `id,title,description,price,currency,category,stock,image_url,images,seller_id,created_at`, filtering `status = 'active'`, and optionally using `search_document` for full-text search. Product detail reads use the same product fields and active-status filter. Public RLS permits only active products; approved sellers can read their own allowed listings and administrators can read/manage listings. The schema also defines the profile, seller, category, delivery, order, payment, review, support, and audit tables, policies, indexes, triggers, functions, and storage buckets used across the application.
+
+The production Data API previously returned PostgREST `PGRST205` (“table not found in the schema cache”) for the core public tables. This means the API schema cache could not resolve those relation names; it does **not**, by itself, prove that the physical PostgreSQL tables are absent. Direct PostgreSQL inspection was unavailable, so the live physical schema, RLS state, migration history, backups, and product data have **not** been verified. No production SQL has been run.
+
+1. In Render, open the `onespeed-2` web service's environment settings and use the configured Supabase URL **host/project reference only**; never copy or post the anon key, database password, or full environment values. In Supabase, open the Dashboard project whose reference matches that host, then open **SQL Editor** in that same project. Do not use a second project or guess from a project display name.
+2. Confirm a current backup or recovery point in Supabase's backup/PITR settings and note its time/status. Do not proceed with production DDL until an authorized operator confirms a suitable recovery point. A backup is not assumed just because the project is on Supabase.
+3. Open `supabase/production-read-only-inspection.sql`. Run each numbered `SELECT` separately in the SQL Editor and save the results securely. This script does not read user/product rows except the optional count query, does not change schema/data, and does not include credentials. The SQL Editor project reference must match Render.
+4. Interpret the table inventory before choosing a path:
+   - **No OneSpeed core tables physically exist:** only if the project is verified as the intended, empty database and a recovery point is confirmed, run `supabase/schema.sql` once, then `supabase/marketplace-operations-migration.sql`. The base installer wraps its DDL in a transaction and its preflight guard aborts if any listed core table exists. Inspect the SQL editor result for success; PostgreSQL transactional errors roll back that script.
+   - **Some core tables exist:** stop. Do not run `schema.sql` or guess at a partial repair. Compare the inspection results to `schema.sql` and migration definitions, preserve data, and prepare/review an additive migration targeted to the confirmed differences. No generic partial migration is supplied because the actual production state is unknown.
+   - **All expected tables/columns exist:** do not recreate them. Check `public` is included among the project's exposed Data API schemas, check the `anon` role has `SELECT` grants on `products` and `categories`, and review RLS policies for active-product public reads. If tables were just created/changed and the schema cache alone is stale, use Supabase's supported schema-cache reload procedure only after verifying the tables/policies; then retry the anonymous query.
+   - **Tables exist and API reads work but no active rows exist:** the catalog is empty by data state, not a missing-file problem. Review existing product statuses and seller approval via the authorized admin workflow; do not invent or bulk-insert sample products.
+5. Verify with the query results and the storefront after recovery: anonymous `GET /rest/v1/products?select=id&status=eq.active&limit=1`, a product detail page, a category filter, and search. Do not test using a service-role key. Product listing and detail use the public anon/publishable key plus RLS.
+6. If the migration-history relation is present, the inspection script shows how to read it. Supabase SQL Editor manual runs may not appear in CLI migration history, so absence of a history row is not evidence that a migration was never applied.
+
+The read-only inspection script intentionally does not contain `CREATE`, `ALTER`, `INSERT`, `UPDATE`, `DELETE`, `DROP`, or `TRUNCATE`. Do not combine a diagnosis run with installer execution. Keep the preflight guard and transaction in `supabase/schema.sql`; neither substitutes for a confirmed backup.
 
 ## Deploy to Render
 
