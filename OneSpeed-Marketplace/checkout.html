@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Checkout – OneSpeed Market</title>
+  <link rel="stylesheet" href="css/styles.css">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+</head>
+<body>
+  <header class="header" id="site-header"></header>
+  <main class="container">
+    <h1 class="section-title">Checkout</h1>
+    <div id="checkout-content"><div class="spinner"></div></div>
+  </main>
+  <footer class="footer" id="site-footer"></footer>
+
+  <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="js/supabase-config.js"></script>
+  <script src="js/supabase.js"></script>
+  <script src="js/data.js"></script>
+  <script src="js/app.js"></script>
+  <script src="js/delivery-address.js"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', async () => {
+      let session;
+      let user;
+      if (window.OneSpeedBackend?.configured()) {
+        try {
+          const authUser = await OneSpeedBackend.currentUser();
+          if (!authUser) {
+            location.href = 'login.html?redirect=' + encodeURIComponent(location.pathname + location.search);
+            return;
+          }
+          const profile = await OneSpeedBackend.profile();
+          if (!profile || !profile.is_active) throw new Error('Your account is inactive. Contact support.');
+          session = { id: authUser.id, role: profile.role };
+          user = { name: profile.full_name, phone: profile.phone, email: authUser.email };
+        } catch (error) {
+          OSM.toast('Could not load your account: ' + error.message);
+          return;
+        }
+      } else {
+        if (!requireLogin('login.html')) return;
+        session = OSM.getSession();
+        user = OSM.getUser(session.id);
+      }
+      const cart = OSM.getCart();
+      if (cart.length === 0) {
+        document.getElementById('checkout-content').innerHTML = `
+          <div class="card" style="padding:40px;text-align:center;">
+            <h2>Your cart is empty</h2>
+            <a href="index.html" class="btn btn-primary mt-3">Shop Now</a>
+          </div>`;
+        return;
+      }
+
+      let products = OSM.getProducts();
+      const supabaseMode = window.OneSpeedBackend?.configured();
+      if (supabaseMode) {
+        try {
+          products = (await OneSpeedBackend.getProductsByIds(cart.map(item => item.productId)))
+            .map(toStorefrontProduct);
+          if (products.length !== cart.length) {
+            throw new Error('One or more cart products are no longer available. Return to your cart to remove unavailable products.');
+          }
+          OSM.saveProducts(products);
+        } catch (error) {
+          document.getElementById('checkout-content').innerHTML = `
+            <div class="card" style="padding:30px;text-align:center;">
+              <h2>Could not prepare checkout</h2>
+              <p>${escapeHTML(error.message)}</p>
+              <a href="cart.html" class="btn btn-secondary mt-3">Return to Cart</a>
+            </div>`;
+          return;
+        }
+      }
+      const productCurrencies = [...new Set(products.map(product => product.currency?.trim()).filter(Boolean))];
+      if (supabaseMode && (productCurrencies.length !== 1 || cart.some(item => !products.some(product => String(product.id) === String(item.productId))))) {
+        document.getElementById('checkout-content').innerHTML = `
+          <div class="card" style="padding:30px;text-align:center;">
+            <h2>Products must share a currency</h2>
+            <p>Your cart contains unavailable products or products priced in different currencies. Update your cart before checkout.</p>
+            <a href="cart.html" class="btn btn-secondary mt-3">Return to Cart</a>
+          </div>`;
+        return;
+      }
+      const orderCurrency = supabaseMode ? productCurrencies[0] : OSM.getCurrency();
+      const total = cart.reduce((sum, item) => {
+        const product = products.find(pr => String(pr.id) === String(item.productId));
+        return sum + (product ? Number(product.price) * item.qty : 0);
+      }, 0);
+      const savedAddress = OneSpeedDeliveryAddress.readSavedAddress();
+
+      document.getElementById('checkout-content').innerHTML = `
+        <div style="display:grid;grid-template-columns:1fr 340px;gap:24px;" class="checkout-grid">
+          <div class="card" style="padding:28px;">
+            <h2 style="margin-bottom:20px;">Shipping Details</h2>
+            <form id="checkout-form">
+              <div class="form-group">
+                <label>Full Name *</label>
+                <input type="text" class="form-control" name="fullName" required value="${escapeHTML(user?.name || '')}">
+              </div>
+              <div class="form-group">
+                <label>Phone Number *</label>
+                <input type="tel" class="form-control" name="phone" required value="${escapeHTML(user?.phone || '')}" placeholder="+234...">
+              </div>
+              <div class="form-group">
+                <label>Email</label>
+                <input type="email" class="form-control" name="email" value="${escapeHTML(user?.email || '')}" readonly>
+              </div>
+              <div class="form-group">
+                <label>Country *</label>
+                <input type="text" class="form-control" name="country" required autocomplete="country-name">
+              </div>
+              <div class="form-group">
+                <label>State / Province (if applicable)</label>
+                <input type="text" class="form-control" name="state" autocomplete="address-level1">
+              </div>
+              <div class="form-group">
+                <label>City *</label>
+                <input type="text" class="form-control" name="city" required>
+              </div>
+              <div class="form-group">
+                <label>Address Line *</label>
+                <input type="text" class="form-control" name="address" required placeholder="Street, house number, landmark">
+              </div>
+              <div class="form-group">
+                <label>Postal / ZIP Code</label>
+                <input type="text" class="form-control" name="zip">
+              </div>
+              <div class="form-group">
+                <label>Choose your delivery location</label>
+                <p class="form-help">Tap the map to place a marker, or drag the marker to the correct location. We do not use address autocomplete.</p>
+                <div id="delivery-map" class="delivery-map" role="application" aria-label="Select delivery location on map"></div>
+                <p id="delivery-map-message" class="delivery-map-message" hidden></p>
+                <p id="delivery-address-status" class="delivery-address-status" role="status" aria-live="polite"></p>
+                <button type="button" class="btn btn-secondary" data-confirm-delivery-address>Confirm delivery address</button>
+                <a href="delivery-address.html" class="delivery-address-link">Manage saved delivery address</a>
+              </div>
+              <div class="form-group">
+                <label>Shipping Method</label>
+                <select class="form-control" name="shipping">
+                  <option value="standard">Standard (7-15 days) – Free</option>
+                  <option value="express">Express (3-7 days) – ${supabaseMode ? `${orderCurrency} 5.99` : OSM.formatPrice(5.99)}</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label>Order Notes (optional)</label>
+                <textarea class="form-control" name="notes" rows="2"></textarea>
+              </div>
+              <button type="submit" class="btn btn-primary btn-block" style="padding:16px;font-size:1.1rem;">Place Order</button>
+            </form>
+          </div>
+          <div>
+            <div class="card" style="padding:24px;position:sticky;top:90px;">
+              <h3 style="margin-bottom:16px;">Order Summary</h3>
+              <div id="summary-items"></div>
+              <hr style="margin:16px 0;border:none;border-top:1px solid #ddd;">
+              <div class="flex justify-between" style="margin-bottom:8px;">
+                <span>Delivery fee</span>
+                <span id="delivery-fee">${OSM.formatPrice(0)}</span>
+              </div>
+              <div class="flex justify-between" style="font-size:1.2rem;font-weight:800;">
+                <span>Total</span>
+                <span id="checkout-total" style="color:var(--primary-dark);">${OSM.formatPrice(total)}</span>
+              </div>
+              <p style="font-size:0.8rem;color:var(--text-light);margin-top:12px;">Prices shown in ${orderCurrency}.${supabaseMode ? '' : ' Payment simulated (demo).'}</p>
+            </div>
+          </div>
+        </div>
+      `;
+
+      // Summary items
+      let html = '';
+      cart.forEach(item => {
+        const p = products.find(pr => String(pr.id) === String(item.productId));
+        if (p) html += `<div class="flex justify-between" style="margin-bottom:8px;font-size:0.9rem;">
+          <span>${escapeHTML(p.title.substring(0,30))} ×${item.qty}</span>
+          <span>${formatProductPrice(p, p.price * item.qty)}</span>
+        </div>`;
+      });
+      document.getElementById('summary-items').innerHTML = html;
+
+      const checkoutForm = document.getElementById('checkout-form');
+      const feeElement = document.getElementById('delivery-fee');
+      const totalElement = document.getElementById('checkout-total');
+      let deliveryQuote = null;
+      let zoneAvailable = false;
+      const expressFee = 5.99;
+      function updateTotals() {
+        const zoneFee = deliveryQuote?.fee || 0;
+        const methodFee = checkoutForm.elements.shipping.value === 'express' ? expressFee : 0;
+        feeElement.textContent = supabaseMode
+          ? `${deliveryQuote?.currency || orderCurrency} ${(zoneFee + methodFee).toFixed(2)}`
+          : OSM.formatPrice(zoneFee + methodFee);
+        totalElement.textContent = supabaseMode
+          ? `${orderCurrency} ${(total + zoneFee + methodFee).toFixed(2)}`
+          : OSM.formatPrice(total + zoneFee + methodFee);
+      }
+      checkoutForm.elements.shipping.addEventListener('change', updateTotals);
+      const addressController = OneSpeedDeliveryAddress.init({
+        form: checkoutForm,
+        mapElement: document.getElementById('delivery-map'),
+        statusElement: document.getElementById('delivery-address-status'),
+        mapMessageElement: document.getElementById('delivery-map-message'),
+        initialAddress: savedAddress,
+        onConfirm: async address => {
+          deliveryQuote = null;
+          zoneAvailable = false;
+          if (supabaseMode) {
+            try {
+              deliveryQuote = await OneSpeedBackend.quoteDeliveryFee({
+                country: address.country,
+                state: address.state,
+                city: address.city,
+                currency: orderCurrency
+              });
+              zoneAvailable = deliveryQuote.available;
+              if (!zoneAvailable) {
+                OSM.toast(deliveryQuote.message || 'Delivery is not available for this address.');
+              }
+            } catch (error) {
+              OSM.toast('Could not check delivery fees: ' + error.message);
+            }
+          } else {
+            zoneAvailable = true;
+          }
+          updateTotals();
+        }
+      });
+
+      checkoutForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const confirmedAddress = addressController.getConfirmedAddress();
+        if (!confirmedAddress) {
+          OSM.toast('Confirm your delivery address before placing the order.');
+          return;
+        }
+        if (!zoneAvailable) {
+          OSM.toast('Delivery is not available for this address or the delivery fee could not be checked.');
+          return;
+        }
+        const submitButton = checkoutForm.querySelector('[type="submit"]');
+        submitButton.disabled = true;
+        const fd = new FormData(e.target);
+        const shippingCost = fd.get('shipping') === 'express' ? 5.99 : 0;
+        const orderItems = cart.map(item => {
+          const p = products.find(pr => pr.id === item.productId);
+          return { productId: item.productId, title: p?.title, price: p?.price, qty: item.qty, image: p?.image };
+        });
+        const shippingAddress = {
+          ...confirmedAddress,
+          fullName: fd.get('fullName'),
+          phone: fd.get('phone'),
+          email: fd.get('email'),
+          method: fd.get('shipping'),
+          notes: fd.get('notes')
+        };
+        try {
+          if (supabaseMode) {
+            const order = await OneSpeedBackend.placeOrder({
+              items: cart.map(item => ({ productId: item.productId, quantity: item.qty })),
+              shippingAddress,
+              currency: orderCurrency
+            });
+
+            function escapeHTML(value) {
+              return String(value ?? '').replace(/[&<>"']/g, character => ({
+                '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+              }[character]));
+            }
+            OSM.clearCart();
+            OSM.toast('Order placed successfully! Order #' + order.order_number);
+            setTimeout(() => location.href = `order-success.html?id=${encodeURIComponent(order.id)}`, 800);
+          } else {
+            const order = OSM.createOrder({
+              userId: session.id,
+              items: orderItems,
+              total: total + shippingCost,
+              shippingCost,
+              currency: OSM.getCurrency(),
+              shipping: shippingAddress
+            });
+            OSM.toast('Order placed successfully! Order #' + order.id);
+            setTimeout(() => location.href = `order-success.html?id=${order.id}`, 800);
+          }
+        } catch (error) {
+          OSM.toast('Could not place order: ' + error.message);
+          submitButton.disabled = false;
+        }
+      });
+    });
+  </script>
+  <style>
+    @media (max-width: 800px) {
+      .checkout-grid { grid-template-columns: 1fr !important; }
+    }
+  </style>
+</body>
+</html>

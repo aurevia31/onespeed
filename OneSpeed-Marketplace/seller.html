@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Seller Centre – OneSpeed Marketplace</title>
+  <link rel="stylesheet" href="css/styles.css">
+  <style>
+    .seller-wrap{max-width:1100px;margin:30px auto;padding:0 18px}
+    .seller-panel{padding:22px;margin-bottom:18px}
+    .seller-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px}
+    .seller-form{display:grid;gap:12px}
+    .seller-form input,.seller-form textarea,.seller-form select{width:100%;padding:11px;border:1px solid #d9d9d9;border-radius:8px}
+    .seller-table{width:100%;border-collapse:collapse}
+    .seller-table th,.seller-table td{text-align:left;padding:10px;border-bottom:1px solid #ddd}
+    .muted{color:#777;font-size:.92rem}
+  </style>
+</head>
+<body>
+  <header class="header" id="site-header"></header>
+  <main class="seller-wrap">
+    <h1>Seller Centre</h1>
+    <p class="muted">Manage your OneSpeed store, products and fulfilment.</p>
+    <div id="seller-state" class="card seller-panel">Checking seller account…</div>
+    <section id="seller-app" hidden>
+      <div class="seller-grid">
+        <div class="card seller-panel"><h3>Products</h3><strong id="product-count">—</strong></div>
+        <div class="card seller-panel"><h3>Orders to fulfil</h3><strong id="order-count">—</strong></div>
+      </div>
+      <div class="card seller-panel">
+        <h2>Add a product</h2>
+        <form id="product-form" class="seller-form">
+          <label>Product name<input name="title" required maxlength="180"></label>
+          <label>Description<textarea name="description" rows="3" required></textarea></label>
+          <div class="seller-grid">
+            <label>Price (NGN)<input name="price" type="number" min="0" step="0.01" required></label>
+            <label>Stock<input name="stock" type="number" min="0" step="1" required></label>
+            <label>Category<input name="category" required placeholder="Electronics"></label>
+            <label>SKU (optional)<input name="sku"></label>
+          </div>
+          <label>Product image<input name="image" type="file" accept="image/jpeg,image/png,image/webp,image/avif" required><span class="muted">JPG, PNG, WebP or AVIF, maximum 5 MB.</span></label>
+          <button class="btn btn-primary" type="submit">Submit product for review</button>
+        </form>
+      </div>
+      <div class="card seller-panel"><h2>Your products</h2><div id="seller-products">Loading…</div></div>
+      <div class="card seller-panel"><h2>Recent order items</h2><div id="seller-orders">Loading…</div></div>
+    </section>
+  </main>
+  <footer class="footer" id="site-footer"></footer>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="js/supabase-config.js"></script>
+  <script src="js/supabase.js"></script>
+  <script src="js/data.js"></script>
+  <script src="js/app.js"></script>
+  <script>
+    (async () => {
+      const state = document.getElementById('seller-state');
+      const app = document.getElementById('seller-app');
+      try {
+        if (!OneSpeedBackend.configured()) {
+          state.textContent = 'Seller Centre requires Supabase configuration. Add your project URL and public anon key in js/supabase-config.js, then apply supabase/schema.sql.';
+          return;
+        }
+        const user = await OneSpeedBackend.currentUser();
+        if (!user) {
+          state.innerHTML = 'Please <a href="login.html?redirect=seller.html">sign in</a> to continue.';
+          return;
+        }
+        const profile = await OneSpeedBackend.profile();
+        if (!profile || !profile.is_active) {
+          state.textContent = 'This account is inactive. Contact support.';
+          return;
+        }
+        if (profile.seller_status !== 'approved' || profile.role !== 'seller') {
+          state.textContent = profile.seller_status === 'pending'
+            ? 'Your seller application is awaiting admin review. You can return here after approval.'
+            : 'This account is not an approved seller. Register as a seller or contact the marketplace administrator.';
+          return;
+        }
+        app.hidden = false;
+        state.textContent = 'Signed in as ' + (profile.full_name || user.email) + ' · Store access approved';
+        const db = OneSpeedBackend.client();
+
+        async function load() {
+          const { data: products, error: productsError } = await db.from('products')
+            .select('id,title,price,stock,status,image_url,category')
+            .eq('seller_id', user.id)
+            .order('created_at', { ascending: false });
+          if (productsError) throw productsError;
+          document.getElementById('product-count').textContent = products.length;
+          document.getElementById('seller-products').innerHTML = products.length
+            ? '<table class="seller-table"><thead><tr><th>Product</th><th>Price</th><th>Stock</th><th>Status</th></tr></thead><tbody>' +
+              products.map(product => `<tr><td>${escapeHTML(product.title)}</td><td>${escapeHTML(product.price)}</td><td>${product.stock}</td><td>${escapeHTML(product.status)}</td></tr>`).join('') +
+              '</tbody></table>'
+            : 'No products yet.';
+
+          const { data: items, error: itemsError } = await db.from('order_items')
+            .select('id,product_title,quantity,unit_price,order_id,orders!inner(order_number,status,created_at,shipping_address)')
+            .eq('seller_id', user.id)
+            .order('created_at', { referencedTable: 'orders', ascending: false })
+            .limit(30);
+          if (itemsError) throw itemsError;
+          document.getElementById('order-count').textContent =
+            items.filter(item => ['paid', 'processing'].includes(item.orders.status)).length;
+          document.getElementById('seller-orders').innerHTML = items.length
+            ? '<div class="table-wrap"><table class="seller-table"><thead><tr><th>Order</th><th>Item</th><th>Qty</th><th>Status</th><th>Delivery address</th></tr></thead><tbody>' +
+              items.map(item => {
+                const address = item.orders.shipping_address || {};
+                return `<tr>
+                  <td>${escapeHTML(item.orders.order_number)}</td>
+                  <td>${escapeHTML(item.product_title)}</td>
+                  <td>${item.quantity}</td>
+                  <td>${escapeHTML(item.orders.status)}</td>
+                  <td>${escapeHTML(address.address)}<br>${escapeHTML([address.city, address.state, address.zip, address.country].filter(Boolean).join(', '))}${locationLink(address)}</td>
+                </tr>`;
+              }).join('') +
+              '</tbody></table></div>'
+            : 'No order items yet.';
+        }
+
+        await load();
+        document.getElementById('product-form').addEventListener('submit', async event => {
+          event.preventDefault();
+          const form = event.currentTarget;
+          const values = new FormData(form);
+          const button = event.submitter;
+          button.disabled = true;
+          try {
+            const uploaded = await OneSpeedBackend.uploadProductImage(values.get('image'));
+            const title = String(values.get('title')).trim();
+            const { error } = await db.from('products').insert({
+              seller_id: user.id,
+              title,
+              slug: title.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') + '-' + crypto.randomUUID().slice(0, 8),
+              description: String(values.get('description')).trim(),
+              price: Number(values.get('price')),
+              currency: 'NGN',
+              stock: Number(values.get('stock')),
+              category: String(values.get('category')).trim(),
+              sku: String(values.get('sku') || '').trim() || null,
+              image_url: uploaded.url,
+              images: [uploaded.url],
+              status: 'pending_review'
+            });
+            if (error) throw error;
+            form.reset();
+            alert('Product submitted for admin review.');
+            await load();
+          } catch (error) {
+            alert(error.message || 'Could not save product');
+          } finally {
+            button.disabled = false;
+          }
+        });
+      } catch (error) {
+        state.textContent = error.message || 'Unable to load seller centre';
+      }
+    })();
+
+    function locationLink(address) {
+      const latitude = Number(address.latitude);
+      const longitude = Number(address.longitude);
+      if (!Number.isFinite(latitude) || !Number.isFinite(longitude)
+        || latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) return '';
+      const url = `https://www.openstreetmap.org/?mlat=${latitude}&mlon=${longitude}#map=16/${latitude}/${longitude}`;
+      return `<br><a href="${url}" target="_blank" rel="noopener noreferrer">View delivery location</a>`;
+    }
+
+    function escapeHTML(value) {
+      return String(value ?? '').replace(/[&<>"']/g, character => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+      }[character]));
+    }
+  </script>
+</body>
+</html>

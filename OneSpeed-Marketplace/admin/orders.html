@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Manage Orders – OneSpeed Admin</title>
+  <link rel="stylesheet" href="../css/styles.css">
+</head>
+<body>
+  <header class="header">
+    <div class="header-inner">
+      <a href="index.html" class="logo"><img src="../assets/images/onespeed-marketplace-brand.webp" alt="OneSpeed Marketplace Admin" width="180" height="45"></a>
+      <div class="nav-actions">
+        <a href="../index.html" class="btn btn-secondary btn-sm">View Store</a>
+      </div>
+    </div>
+  </header>
+
+  <div class="admin-layout">
+    <aside class="admin-sidebar">
+      <a href="index.html">Dashboard</a>
+      <a href="products.html">Products</a>
+      <a href="orders.html" class="active">Orders</a>
+      <a href="delivery-zones.html">Delivery Zones</a>
+      <a href="users.html">Users</a>
+    </aside>
+    <main class="admin-content">
+      <h1 class="section-title">Orders Management</h1>
+      <p style="font-size:0.9rem;color:var(--text-light);margin-bottom:16px;">Approve → Confirm → Generate Tracking Code → Mark Shipped / Delivered</p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Customer</th>
+              <th>Total</th>
+              <th>Status</th>
+              <th>Tracking</th>
+              <th>Date</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="orders-body"></tbody>
+        </table>
+      </div>
+    </main>
+  </div>
+
+  <!-- Order Detail Modal -->
+  <div class="modal-overlay" id="modal">
+    <div class="modal" style="max-width:640px;">
+      <div class="modal-header">
+        <h3>Order Details</h3>
+        <button class="modal-close" onclick="closeModal()">×</button>
+      </div>
+      <div class="modal-body" id="modal-body"></div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="../js/supabase-config.js"></script>
+  <script src="../js/supabase.js"></script>
+  <script src="../js/data.js"></script>
+  <script>
+    async function renderOrders() {
+      if (OneSpeedBackend.configured()) {
+        try {
+          const orders = await OneSpeedBackend.listOrders();
+          document.getElementById('orders-body').innerHTML = orders.map(o => `
+            <tr>
+              <td><strong>#${escapeHTML(o.order_number)}</strong></td>
+              <td>${escapeHTML(o.shipping_address?.fullName || '—')}<br><small style="color:#888;">${escapeHTML(o.shipping_address?.phone || '')}</small></td>
+              <td>${escapeHTML(o.currency)} ${Number(o.total).toFixed(2)}</td>
+              <td><span class="status status-${escapeHTML(o.status)}">${escapeHTML(o.status)}</span></td>
+              <td style="font-family:monospace;font-size:0.85rem;">${escapeHTML(o.tracking_number || '—')}</td>
+              <td>${new Date(o.created_at).toLocaleDateString()}</td>
+              <td><button class="btn btn-secondary btn-sm" onclick="viewSupabaseOrder('${o.id}')">Details</button></td>
+            </tr>
+          `).join('') || '<tr><td colspan="7" style="text-align:center;padding:30px;">No orders yet</td></tr>';
+        } catch (error) {
+          document.getElementById('orders-body').innerHTML = `<tr><td colspan="7">${escapeHTML(error.message || 'Could not load orders.')}</td></tr>`;
+        }
+        return;
+      }
+      const orders = OSM.getOrders();
+      document.getElementById('orders-body').innerHTML = orders.map(o => `
+        <tr>
+          <td><strong>#${o.id}</strong></td>
+          <td>${o.shipping?.fullName || '—'}<br><small style="color:#888;">${o.shipping?.phone || ''}</small></td>
+          <td>${OSM.formatPrice(o.total)}</td>
+          <td><span class="status status-${o.status}">${o.status}</span></td>
+          <td style="font-family:monospace;font-size:0.85rem;">${o.trackingCode || '—'}</td>
+          <td>${new Date(o.createdAt).toLocaleDateString()}</td>
+          <td>
+            <button class="btn btn-secondary btn-sm" onclick="viewOrder(${o.id})">Manage</button>
+          </td>
+        </tr>
+      `).join('') || '<tr><td colspan="7" style="text-align:center;padding:30px;">No orders yet</td></tr>';
+    }
+
+    function viewOrder(id) {
+      const o = OSM.getOrder(id);
+      if (!o) return;
+      const items = (o.items || []).map(i => `<div style="margin-bottom:6px;">${i.title} ×${i.qty} — ${OSM.formatPrice(i.price * i.qty)}</div>`).join('');
+      document.getElementById('modal-body').innerHTML = `
+        <p><strong>Order #${o.id}</strong> · <span class="status status-${o.status}">${o.status}</span></p>
+        <p style="font-size:0.9rem;margin:8px 0;">${new Date(o.createdAt).toLocaleString()}</p>
+        <h4 style="margin:16px 0 8px;">Items</h4>
+        ${items}
+        <p style="font-weight:700;margin-top:8px;">Total: ${OSM.formatPrice(o.total)}</p>
+        <h4 style="margin:16px 0 8px;">Shipping</h4>
+        <p style="font-size:0.9rem;line-height:1.5;">
+          ${escapeHTML(o.shipping?.fullName)}<br>${escapeHTML(o.shipping?.address)}<br>
+          ${escapeHTML([o.shipping?.city, o.shipping?.state, o.shipping?.zip, o.shipping?.country].filter(Boolean).join(', '))}<br>
+          ${escapeHTML(o.shipping?.phone)} · ${escapeHTML(o.shipping?.email)}
+        </p>
+        ${locationDetails(o.shipping)}
+        ${o.trackingCode ? `<p style="margin-top:12px;"><strong>Tracking Code:</strong> <code style="background:#eee;padding:4px 8px;border-radius:6px;">${o.trackingCode}</code></p>` : ''}
+        <div style="margin-top:24px;display:flex;flex-wrap:wrap;gap:8px;">
+          ${o.status === 'pending' ? `<button class="btn btn-primary btn-sm" onclick="setStatus(${o.id},'approved')">Approve</button>` : ''}
+          ${['pending','approved'].includes(o.status) ? `<button class="btn btn-primary btn-sm" onclick="setStatus(${o.id},'confirmed')">Confirm</button>` : ''}
+          ${['approved','confirmed'].includes(o.status) && !o.trackingCode ? `<button class="btn btn-primary btn-sm" onclick="issueTracking(${o.id})">Issue Tracking Code</button>` : ''}
+          ${o.trackingCode && o.status !== 'delivered' ? `<button class="btn btn-primary btn-sm" onclick="setStatus(${o.id},'shipped')">Mark Shipped</button>` : ''}
+          ${o.status === 'shipped' ? `<button class="btn btn-primary btn-sm" onclick="setStatus(${o.id},'delivered')">Mark Delivered</button>` : ''}
+          ${!['delivered','cancelled'].includes(o.status) ? `<button class="btn btn-accent btn-sm" onclick="setStatus(${o.id},'cancelled')">Cancel</button>` : ''}
+        </div>
+      `;
+      document.getElementById('modal').classList.add('show');
+    }
+
+    async function viewSupabaseOrder(id) {
+      try {
+        const order = await OneSpeedBackend.getOrder(id);
+        const address = order.shipping_address || {};
+        const items = (order.order_items || []).map(item => `
+          <div style="margin-bottom:6px;">${escapeHTML(item.product_title)} ×${item.quantity} — ${escapeHTML(order.currency)} ${(Number(item.unit_price) * item.quantity).toFixed(2)}</div>
+        `).join('');
+        document.getElementById('modal-body').innerHTML = `
+          <p><strong>Order #${escapeHTML(order.order_number)}</strong> · <span class="status status-${escapeHTML(order.status)}">${escapeHTML(order.status)}</span></p>
+          <p style="font-size:0.9rem;margin:8px 0;">${new Date(order.created_at).toLocaleString()}</p>
+          <h4 style="margin:16px 0 8px;">Items</h4>${items}
+          <p style="font-weight:700;margin-top:8px;">Total: ${escapeHTML(order.currency)} ${Number(order.total).toFixed(2)}</p>
+          <h4 style="margin:16px 0 8px;">Shipping</h4>
+          <p style="font-size:0.9rem;line-height:1.5;">${escapeHTML(address.fullName)}<br>${escapeHTML(address.address)}<br>${escapeHTML([address.city, address.state, address.zip, address.country].filter(Boolean).join(', '))}<br>${escapeHTML(address.phone)} · ${escapeHTML(address.email)}</p>
+          ${locationDetails(address)}
+        `;
+        document.getElementById('modal').classList.add('show');
+      } catch (error) {
+        OSM.toast('Could not load order details: ' + error.message);
+      }
+    }
+
+    function locationDetails(address = {}) {
+      const latitude = Number(address.latitude);
+      const longitude = Number(address.longitude);
+      if (!Number.isFinite(latitude) || !Number.isFinite(longitude)
+        || latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) return '';
+      const mapUrl = `https://www.openstreetmap.org/?mlat=${latitude}&mlon=${longitude}#map=16/${latitude}/${longitude}`;
+      return `<p style="margin-top:8px;">Coordinates: ${latitude.toFixed(6)}, ${longitude.toFixed(6)}<br><a href="${mapUrl}" target="_blank" rel="noopener noreferrer">View delivery location on OpenStreetMap</a></p>`;
+    }
+
+    function escapeHTML(value) {
+      return String(value ?? '').replace(/[&<>"']/g, character => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+      }[character]));
+    }
+
+    function setStatus(id, status) {
+      OSM.updateOrder(id, { status, note: `Admin set status to ${status}` });
+      OSM.toast('Order updated to ' + status);
+      closeModal();
+      renderOrders();
+    }
+
+    function issueTracking(id) {
+      const code = OSM.generateTrackingCode();
+      OSM.updateOrder(id, { trackingCode: code, status: 'shipped', note: 'Tracking code generated and order marked shipped' });
+      OSM.toast('Tracking code issued: ' + code);
+      closeModal();
+      renderOrders();
+    }
+
+    function closeModal() {
+      document.getElementById('modal').classList.remove('show');
+    }
+
+    document.getElementById('modal').addEventListener('click', e => {
+      if (e.target.id === 'modal') closeModal();
+    });
+
+    async function initializeOrdersPage() {
+      if (OneSpeedBackend.configured()) {
+        try {
+          const user = await OneSpeedBackend.currentUser();
+          const profile = user ? await OneSpeedBackend.profile() : null;
+          if (!profile || profile.role !== 'admin' || !profile.is_active) {
+            location.href = '../login.html?redirect=admin/orders.html';
+            return;
+          }
+        } catch (error) {
+          document.getElementById('orders-body').innerHTML =
+            `<tr><td colspan="7">${escapeHTML(error.message || 'Could not verify administrator access.')}</td></tr>`;
+          return;
+        }
+      } else if (!OSM.isAdmin()) {
+        location.href = '../login.html';
+        return;
+      }
+      await renderOrders();
+    }
+
+    initializeOrdersPage();
+  </script>
+</body>
+</html>

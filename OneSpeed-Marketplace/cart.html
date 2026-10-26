@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cart – OneSpeed Market</title>
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <header class="header" id="site-header"></header>
+  <main class="container">
+    <h1 class="section-title">Your Cart</h1>
+    <div id="cart-content"><div class="spinner"></div></div>
+  </main>
+  <footer class="footer" id="site-footer"></footer>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="js/supabase-config.js"></script>
+  <script src="js/supabase.js"></script>
+  <script src="js/data.js"></script>
+  <script src="js/app.js"></script>
+  <script>
+    async function renderCart() {
+      const cart = OSM.getCart();
+      const content = document.getElementById('cart-content');
+      let products = OSM.getProducts();
+      let session = OSM.getSession();
+
+      if (window.OneSpeedBackend?.configured()) {
+        try {
+          const user = await OneSpeedBackend.currentUser();
+          session = user;
+          if (user && cart.length) {
+            products = (await OneSpeedBackend.getProductsByIds(cart.map(item => item.productId)))
+              .map(toStorefrontProduct);
+            OSM.saveProducts(products);
+          }
+        } catch (error) {
+          content.innerHTML = `<div class="card" style="padding:40px;text-align:center;"><h2>Could not load your cart</h2><p>${escapeHTML(error.message)}</p></div>`;
+          return;
+        }
+      }
+
+      if (!session) {
+        content.innerHTML = `
+          <div class="card" style="padding:40px;text-align:center;">
+            <h2>Please login to view your cart</h2>
+            <p class="mt-2" style="color:var(--text-light);">Guests can browse products but need an account to shop.</p>
+            <a href="login.html?redirect=cart.html" class="btn btn-primary mt-3">Login</a>
+          </div>`;
+        return;
+      }
+
+      if (cart.length === 0) {
+        content.innerHTML = `
+          <div class="card" style="padding:40px;text-align:center;">
+            <h2>Your cart is empty</h2>
+            <a href="index.html" class="btn btn-primary mt-3">Continue Shopping</a>
+          </div>`;
+        return;
+      }
+
+      const totals = new Map();
+      let rows = '';
+      cart.forEach(item => {
+        const p = products.find(pr => String(pr.id) === String(item.productId));
+        if (!p) return;
+        const sub = p.price * item.qty;
+        const currency = p.currency || OSM.getCurrency();
+        totals.set(currency, (totals.get(currency) || 0) + sub);
+        const productId = String(p.id);
+        rows += `
+          <tr>
+            <td style="display:flex;align-items:center;gap:12px;">
+              <img src="${escapeHTML(safeImageURL(p.image))}" alt="" style="width:60px;height:60px;object-fit:cover;border-radius:8px;" onerror="this.src='assets/images/product-placeholder.svg'">
+              <div>
+                <strong>${escapeHTML(p.title)}</strong><br>
+                <small style="color:var(--text-light);">${formatProductPrice(p)} each</small>
+              </div>
+            </td>
+            <td>
+              <div style="display:flex;align-items:center;gap:8px;">
+                <button class="btn btn-secondary btn-sm" onclick="updateQty('${productId}', ${item.qty - 1})">−</button>
+                <span style="font-weight:700;min-width:24px;text-align:center;">${item.qty}</span>
+                <button class="btn btn-secondary btn-sm" onclick="updateQty('${productId}', ${item.qty + 1})">+</button>
+              </div>
+            </td>
+            <td style="font-weight:700;">${formatProductPrice(p, sub)}</td>
+            <td><button class="btn btn-accent btn-sm" onclick="updateQty('${productId}', 0)">Remove</button></td>
+          </tr>`;
+      });
+
+      const availableCount = cart.filter(item => products.some(product => String(product.id) === String(item.productId))).length;
+      const totalLabel = [...totals].map(([currency, amount]) => {
+        const product = products.find(item => (item.currency || OSM.getCurrency()) === currency);
+        return formatProductPrice(product, amount);
+      }).join(' + ');
+      content.innerHTML = `
+        ${availableCount < cart.length ? '<p class="card" style="padding:16px;margin-bottom:16px;">Some cart items are no longer available. Remove them before checkout.</p>' : ''}
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Product</th><th>Qty</th><th>Subtotal</th><th></th></tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+        <div class="card mt-3" style="padding:24px;max-width:400px;margin-left:auto;">
+          <div class="flex justify-between align-center mb-2">
+            <span style="font-size:1.1rem;">Total</span>
+            <span style="font-size:1.5rem;font-weight:800;color:var(--primary-dark);">${escapeHTML(totalLabel || '—')}</span>
+          </div>
+          ${availableCount === cart.length ? '<a href="checkout.html" class="btn btn-primary btn-block" style="padding:16px;">Proceed to Checkout</a>' : ''}
+          <a href="index.html" class="btn btn-secondary btn-block mt-2">Continue Shopping</a>
+        </div>
+      `;
+    }
+
+    function updateQty(id, qty) {
+      OSM.updateCartQty(id, qty);
+      updateCartBadge();
+      renderCart();
+    }
+
+    document.addEventListener('DOMContentLoaded', renderCart);
+
+    function escapeHTML(value) {
+      return String(value ?? '').replace(/[&<>"']/g, character => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+      }[character]));
+    }
+  </script>
+</body>
+</html>

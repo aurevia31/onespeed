@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OneSpeed Market – Shop Like a Billionaire</title>
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <header class="header" id="site-header"></header>
+
+  <main class="container">
+    <!-- Premium Hero with official branding image -->
+    <section class="hero-premium">
+      <div class="hero-content">
+        <div class="hero-badge">SHOP • SELL • GROW</div>
+        <h1>Everything You Need,<br><span class="gold-text">OneSpeed</span></h1>
+        <p class="hero-desc">Your all-in-one marketplace for the best products, trusted sellers and lightning-fast delivery — all in one place.</p>
+        
+        <div class="hero-trust">
+          <div class="trust-item"><span class="trust-mark" aria-hidden="true"></span> Secure checkout</div>
+          <div class="trust-item"><span class="trust-mark" aria-hidden="true"></span> Order tracking</div>
+          <div class="trust-item"><span class="trust-mark" aria-hidden="true"></span> Account approval</div>
+          <div class="trust-item"><span class="trust-mark" aria-hidden="true"></span> Customer support</div>
+        </div>
+
+        <div class="hero-actions">
+          <a href="#products" class="btn btn-primary btn-lg"><span class="ui-icon" aria-hidden="true">&#8594;</span> Start Shopping</a>
+          <a href="register.html" class="btn btn-secondary btn-lg">Create Free Account</a>
+        </div>
+      </div>
+      <div class="hero-visual">
+        <img src="assets/images/onespeed-marketplace-hero.webp" alt="OneSpeed Marketplace - Premium Shopping Experience" class="hero-image" width="900" height="857" fetchpriority="high">
+      </div>
+    </section>
+
+    <!-- Category Navigation -->
+    <section class="category-nav">
+      <div class="category-item" data-cat="Fashion">
+        <img class="cat-icon-image" src="assets/images/categories/fashion.svg" alt="" width="64" height="64" loading="lazy">
+        <span>Fashion & Apparel</span>
+      </div>
+      <div class="category-item" data-cat="Electronics">
+        <img class="cat-icon-image" src="assets/images/categories/electronics.svg" alt="" width="64" height="64" loading="lazy">
+        <span>Electronics & Gadgets</span>
+      </div>
+      <div class="category-item" data-cat="Home">
+        <img class="cat-icon-image" src="assets/images/categories/home.svg" alt="" width="64" height="64" loading="lazy">
+        <span>Home & Living</span>
+      </div>
+      <div class="category-item" data-cat="Beauty">
+        <img class="cat-icon-image" src="assets/images/categories/beauty.svg" alt="" width="64" height="64" loading="lazy">
+        <span>Beauty & Personal Care</span>
+      </div>
+      <div class="category-item" data-cat="Sports">
+        <img class="cat-icon-image" src="assets/images/categories/sports.svg" alt="" width="64" height="64" loading="lazy">
+        <span>Sports & Outdoors</span>
+      </div>
+      <div class="category-item" data-cat="Toys">
+        <img class="cat-icon-image" src="assets/images/categories/toys.svg" alt="" width="64" height="64" loading="lazy">
+        <span>Toys & Kids</span>
+      </div>
+      <div class="category-item" data-cat="Groceries"><img class="cat-icon-image" src="assets/images/categories/groceries.svg" alt="" width="64" height="64" loading="lazy"><span>Groceries & Essentials</span></div>
+      <div class="category-item" data-cat="Automotive"><img class="cat-icon-image" src="assets/images/categories/automotive.svg" alt="" width="64" height="64" loading="lazy"><span>Automotive</span></div>
+      <div class="category-item" data-cat="Pets"><img class="cat-icon-image" src="assets/images/categories/pets.svg" alt="" width="64" height="64" loading="lazy"><span>Pets & Accessories</span></div>
+    </section>
+
+    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:24px;" id="category-filters">
+      <button class="btn btn-secondary btn-sm cat-btn active" data-cat="">All</button>
+      <button class="btn btn-secondary btn-sm cat-btn" data-cat="Electronics">Electronics</button>
+      <button class="btn btn-secondary btn-sm cat-btn" data-cat="Fashion">Fashion</button>
+      <button class="btn btn-secondary btn-sm cat-btn" data-cat="Home">Home</button>
+      <button class="btn btn-secondary btn-sm cat-btn" data-cat="Sports">Sports</button>
+      <button class="btn btn-secondary btn-sm cat-btn" data-cat="Toys">Toys</button>
+      <button class="btn btn-secondary btn-sm cat-btn" data-cat="Beauty">Beauty</button>
+      <button class="btn btn-secondary btn-sm cat-btn" data-cat="Groceries">Groceries</button>
+      <button class="btn btn-secondary btn-sm cat-btn" data-cat="Automotive">Automotive</button>
+      <button class="btn btn-secondary btn-sm cat-btn" data-cat="Pets">Pets</button>
+    </div>
+
+    <h2 class="section-title" id="products">Top Picks for You</h2>
+    <div class="product-grid" id="product-grid">
+      <div class="spinner"></div>
+    </div>
+
+    <div class="text-center mt-3" id="load-more-wrap" style="display:none;">
+      <button class="btn btn-primary" id="load-more">Load More Products</button>
+    </div>
+  </main>
+
+  <footer class="footer" id="site-footer"></footer>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="js/supabase-config.js"></script>
+  <script src="js/supabase.js"></script>
+  <script src="js/data.js"></script>
+  <script src="js/app.js"></script>
+  <script>
+    let allProducts = [];
+    let filtered = [];
+    let page = 0;
+    const perPage = 12;
+
+    function renderProducts(reset = false) {
+      if (reset) {
+        page = 0;
+        document.getElementById('product-grid').innerHTML = '';
+      }
+      const start = page * perPage;
+      const slice = filtered.slice(start, start + perPage);
+      const grid = document.getElementById('product-grid');
+      if (slice.length === 0 && page === 0) {
+        grid.innerHTML = '<p class="text-center" style="grid-column:1/-1;padding:40px;">No products found. Try a different search or category.</p>';
+        document.getElementById('load-more-wrap').style.display = 'none';
+        return;
+      }
+      slice.forEach(p => {
+        grid.insertAdjacentHTML('beforeend', productCardHTML(p));
+      });
+      page++;
+      const hasMore = page * perPage < filtered.length;
+      document.getElementById('load-more-wrap').style.display = hasMore ? 'block' : 'none';
+    }
+
+    function applyFilters() {
+      const q = (getQueryParam('q') || '').toLowerCase();
+      const cat = getQueryParam('cat') || '';
+      filtered = allProducts.filter(p => {
+        const matchQ = !q || p.title.toLowerCase().includes(q) || (p.description || '').toLowerCase().includes(q) || p.category.toLowerCase().includes(q);
+        const matchCat = !cat || p.category === cat;
+        return matchQ && matchCat;
+      });
+      // Update active category button
+      document.querySelectorAll('.cat-btn').forEach(btn => {
+        btn.classList.toggle('active', (btn.dataset.cat || '') === cat);
+      });
+      renderProducts(true);
+    }
+
+    document.addEventListener('DOMContentLoaded', async () => {
+      allProducts = OSM.getProducts().sort((a, b) => (b.sales || 0) - (a.sales || 0));
+      if (window.OneSpeedBackend?.configured()) {
+        try {
+          const [products, user] = await Promise.all([
+            OneSpeedBackend.listProducts({ limit: 1000 }),
+            OneSpeedBackend.currentUser()
+          ]);
+          window.OneSpeedAuthenticated = Boolean(user);
+          allProducts = products.map(toStorefrontProduct);
+          OSM.saveProducts(allProducts);
+        } catch (error) {
+          document.getElementById('product-grid').innerHTML = `
+            <p class="text-center" style="grid-column:1/-1;padding:40px;">
+              Could not load marketplace products: ${escapeHTML(error.message)}
+            </p>`;
+          return;
+        }
+      }
+      allProducts.sort((a, b) => (b.sales || 0) - (a.sales || 0));
+      applyFilters();
+
+      document.querySelectorAll('.category-item').forEach(item => {
+        item.setAttribute('role', 'button');
+        item.setAttribute('tabindex', '0');
+        const selectCategory = () => {
+          const url = new URL(location);
+          url.searchParams.set('cat', item.dataset.cat);
+          history.replaceState(null, '', url);
+          applyFilters();
+          document.getElementById('products').scrollIntoView({ behavior: 'smooth', block: 'start' });
+        };
+        item.addEventListener('click', selectCategory);
+        item.addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); selectCategory(); } });
+      });
+
+      document.querySelectorAll('.cat-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const cat = btn.dataset.cat;
+          const url = new URL(location);
+          if (cat) url.searchParams.set('cat', cat);
+          else url.searchParams.delete('cat');
+          // Keep search query if any
+          history.replaceState(null, '', url);
+          applyFilters();
+        });
+      });
+
+      document.getElementById('load-more')?.addEventListener('click', () => renderProducts(false));
+    });
+  </script>
+</body>
+</html>

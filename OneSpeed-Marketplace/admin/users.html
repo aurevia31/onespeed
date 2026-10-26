@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Manage Users – OneSpeed Admin</title>
+  <link rel="stylesheet" href="../css/styles.css">
+</head>
+<body>
+  <header class="header">
+    <div class="header-inner">
+      <a href="index.html" class="logo"><img src="../assets/images/onespeed-marketplace-brand.webp" alt="OneSpeed Marketplace Admin" width="180" height="45"></a>
+      <div class="nav-actions">
+        <a href="../index.html" class="btn btn-secondary btn-sm">View Store</a>
+      </div>
+    </div>
+  </header>
+
+  <div class="admin-layout">
+    <aside class="admin-sidebar">
+      <a href="index.html">Dashboard</a>
+      <a href="products.html">Products</a>
+      <a href="orders.html">Orders</a>
+      <a href="users.html" class="active">Users</a>
+    </aside>
+    <main class="admin-content">
+      <h1 class="section-title">User Management & Verification</h1>
+      <p style="font-size:0.9rem;color:var(--text-light);margin-bottom:16px;">New customer accounts require your approval before they can login and see prices / purchase.</p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Name</th>
+              <th>Email</th>
+              <th>Phone</th>
+              <th>Role</th>
+              <th>Verified</th>
+              <th>Joined</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="users-body"></tbody>
+        </table>
+      </div>
+    </main>
+  </div>
+
+  <script src="../js/data.js"></script>
+  <script>
+    if (!OSM.isAdmin()) location.href = '../login.html';
+
+    function renderUsers() {
+      const users = OSM.getUsers();
+      document.getElementById('users-body').innerHTML = users.map(u => `
+        <tr>
+          <td>${u.id}</td>
+          <td>${u.name}</td>
+          <td>${u.email}</td>
+          <td>${u.phone || '—'}</td>
+          <td><span class="badge">${u.role}</span></td>
+          <td>${u.verified ? '<span class="status status-approved">Yes</span>' : '<span class="status status-pending">No</span>'}</td>
+          <td>${new Date(u.createdAt).toLocaleDateString()}</td>
+          <td>
+            ${!u.verified && u.role === 'customer' ? `
+              <button class="btn btn-primary btn-sm" onclick="verify(${u.id})">Approve</button>
+            ` : u.role === 'customer' ? `
+              <button class="btn btn-secondary btn-sm" onclick="revoke(${u.id})">Revoke</button>
+            ` : '—'}
+          </td>
+        </tr>
+      `).join('');
+    }
+
+    function verify(id) {
+      OSM.updateUser(id, { verified: true });
+      OSM.toast('User verified – they can now login');
+      renderUsers();
+    }
+
+    function revoke(id) {
+      if (!confirm('Revoke verification? User will be unable to login until re-approved.')) return;
+      OSM.updateUser(id, { verified: false });
+      OSM.toast('Verification revoked');
+      renderUsers();
+    }
+
+    renderUsers();
+  </script>
+</body>
+</html>

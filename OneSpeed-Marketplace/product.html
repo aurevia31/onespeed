@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Product – OneSpeed Market</title>
+  <link rel="stylesheet" href="css/styles.css">
+  <style>
+    .product-detail { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; }
+    @media (max-width: 768px) { .product-detail { grid-template-columns: 1fr; } }
+    .gallery img { width: 100%; border-radius: 16px; box-shadow: var(--shadow-deep); background: #e0d8c8; }
+    .price-big { font-size: 2rem; font-weight: 800; color: var(--primary-dark); margin: 12px 0; }
+    .qty-control { display: flex; align-items: center; gap: 12px; margin: 16px 0; }
+    .qty-control button { width: 40px; height: 40px; border-radius: 10px; font-size: 1.2rem; }
+    .qty-control input { width: 60px; text-align: center; font-size: 1.1rem; font-weight: 700; }
+  </style>
+</head>
+<body>
+  <header class="header" id="site-header"></header>
+  <main class="container">
+    <div id="product-content">
+      <div class="spinner"></div>
+    </div>
+  </main>
+  <footer class="footer" id="site-footer"></footer>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="js/supabase-config.js"></script>
+  <script src="js/supabase.js"></script>
+  <script src="js/data.js"></script>
+  <script src="js/app.js"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', async () => {
+      const id = getQueryParam('id');
+      const content = document.getElementById('product-content');
+      let p = OSM.getProduct(id);
+      let authenticated = Boolean(OSM.getSession());
+      if (window.OneSpeedBackend?.configured()) {
+        try {
+          const [remoteProduct, user] = await Promise.all([
+            OneSpeedBackend.getProduct(id),
+            OneSpeedBackend.currentUser()
+          ]);
+          p = remoteProduct ? toStorefrontProduct(remoteProduct) : null;
+          authenticated = Boolean(user);
+          if (p) {
+            const products = OSM.getProducts().filter(product => String(product.id) !== String(p.id));
+            OSM.saveProducts([p, ...products]);
+          }
+        } catch (error) {
+          content.innerHTML = `<div class="card" style="padding:40px;text-align:center;"><h2>Could not load product</h2><p>${escapeHTML(error.message)}</p><a href="index.html" class="btn btn-primary mt-3">Back to Marketplace</a></div>`;
+          return;
+        }
+      }
+      if (!p) {
+        content.innerHTML = '<div class="card" style="padding:40px;text-align:center;"><h2>Product not found</h2><a href="index.html" class="btn btn-primary mt-3">Back to Marketplace</a></div>';
+        return;
+      }
+      document.title = p.title + ' – OneSpeed Market';
+      const isGuest = !authenticated;
+
+      content.innerHTML = `
+        <div class="product-detail">
+          <div class="gallery">
+            <img src="${escapeHTML(safeImageURL(p.image))}" alt="${escapeHTML(p.title)}" width="600" height="600" loading="eager" onerror="this.src='assets/images/product-placeholder.svg'">
+          </div>
+          <div>
+            <div class="badge">${escapeHTML(p.category)}</div>
+            <h1 style="font-size:1.6rem;margin:12px 0;color:var(--secondary);">${escapeHTML(p.title)}</h1>
+            <div style="display:flex;gap:16px;align-items:center;margin-bottom:8px;">
+              <span><span class="rating-star" aria-hidden="true">★</span> ${p.rating || 4.5} / 5</span>
+              <span style="color:var(--text-light);">${(p.sales || 0).toLocaleString()} sold</span>
+              <span style="color:var(--text-light);">Stock: ${p.stock}</span>
+            </div>
+            ${isGuest 
+              ? `<div class="price-big locked-price" style="display:inline-block;">Login to unlock price</div>
+                 <p class="mt-2" style="color:var(--text-light);">Create a free account or login to see prices and purchase.</p>
+                 <div class="mt-3" style="display:flex;gap:12px;">
+                   <a href="login.html?redirect=${encodeURIComponent(`product.html?id=${p.id}`)}" class="btn btn-primary">Login</a>
+                   <a href="register.html" class="btn btn-secondary">Sign Up Free</a>
+                 </div>`
+              : `<div class="price-big">${formatProductPrice(p)}</div>
+                 <div class="qty-control">
+                   <button class="btn btn-secondary" onclick="changeQty(-1)">−</button>
+                   <input type="number" id="qty" value="1" min="1" max="${p.stock}" class="form-control">
+                   <button class="btn btn-secondary" onclick="changeQty(1)">+</button>
+                 </div>
+                 <button class="btn btn-primary btn-block" style="padding:16px;font-size:1.1rem;" onclick="addToCart()">Add to Cart</button>
+                 <button class="btn btn-accent btn-block mt-2" onclick="buyNow()">Buy Now</button>`
+            }
+            <div class="card mt-3" style="padding:20px;">
+              <h3 style="margin-bottom:10px;">Product Description</h3>
+              <p style="color:var(--text-light);line-height:1.7;">${escapeHTML(p.description || 'No description available.')}</p>
+            </div>
+          </div>
+        </div>
+      `;
+    });
+
+    function changeQty(delta) {
+      const input = document.getElementById('qty');
+      let v = parseInt(input.value) + delta;
+      if (v < 1) v = 1;
+      input.value = v;
+    }
+
+    async function requireShoppingLogin() {
+      if (window.OneSpeedBackend?.configured()) {
+        try {
+          const user = await OneSpeedBackend.currentUser();
+          if (user) return true;
+        } catch (error) {
+          OSM.toast('Could not verify your account: ' + error.message);
+          return false;
+        }
+        location.href = 'login.html?redirect=' + encodeURIComponent(location.pathname + location.search);
+        return false;
+      }
+      return requireLogin();
+    }
+
+    async function addToCart() {
+      if (!await requireShoppingLogin()) return;
+      const id = getQueryParam('id');
+      const qty = parseInt(document.getElementById('qty').value) || 1;
+      OSM.addToCart(id, qty);
+      updateCartBadge();
+      OSM.toast(`Added ${qty} item(s) to cart`);
+    }
+
+    async function buyNow() {
+      if (!await requireShoppingLogin()) return;
+      const id = getQueryParam('id');
+      const qty = parseInt(document.getElementById('qty').value) || 1;
+      OSM.clearCart();
+      OSM.addToCart(id, qty);
+      location.href = 'checkout.html';
+    }
+
+    function escapeHTML(value) {
+      return String(value ?? '').replace(/[&<>"']/g, character => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+      }[character]));
+    }
+  </script>
+</body>
+</html>

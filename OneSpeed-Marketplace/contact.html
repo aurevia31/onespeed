@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Contact Us – OneSpeed Market</title>
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <header class="header" id="site-header"></header>
+
+  <main class="container">
+    <h1 class="section-title">Contact Us</h1>
+    <p style="max-width:600px;margin-bottom:30px;color:var(--text-light);">
+      Have a question about an order, product, or your account? Reach out to the OneSpeed Market team. We typically respond within 24 hours.
+    </p>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:28px;" class="contact-grid">
+      <!-- Contact Info Card -->
+      <div class="card" style="padding:32px;">
+        <h2 style="margin-bottom:20px;color:var(--secondary);">Get in Touch</h2>
+        
+        <div style="margin-bottom:24px;">
+          <div style="font-size:0.85rem;color:var(--text-light);margin-bottom:4px;">Phone / WhatsApp</div>
+          <a href="tel:+12105047697" style="font-size:1.3rem;font-weight:700;color:var(--primary-dark);text-decoration:none;">
+            +1 (210) 504-7697
+          </a>
+        </div>
+
+        <div style="margin-bottom:24px;">
+          <div style="font-size:0.85rem;color:var(--text-light);margin-bottom:4px;">Email</div>
+          <a href="mailto:onespeedmail@gmail.com" style="font-size:1.2rem;font-weight:700;color:var(--primary-dark);text-decoration:none;">
+            onespeedmail@gmail.com
+          </a>
+        </div>
+
+        <div style="margin-bottom:24px;">
+          <div style="font-size:0.85rem;color:var(--text-light);margin-bottom:4px;">Business Hours</div>
+          <p style="font-weight:600;">Monday – Friday: 9:00 AM – 6:00 PM (WAT)<br>
+          Saturday: 10:00 AM – 2:00 PM</p>
+        </div>
+
+        <div class="card" style="padding:16px;background:linear-gradient(145deg,#f0e8d8,#e8e0d0);margin-top:20px;">
+          <strong>Order Support</strong>
+          <p style="font-size:0.9rem;margin-top:6px;color:var(--text-light);">
+            For fastest help with existing orders, please include your <strong>Order ID</strong> when contacting us.
+          </p>
+          <a href="track.html" class="btn btn-secondary btn-sm mt-2">Track an Order</a>
+        </div>
+      </div>
+
+      <!-- Contact Form -->
+      <div class="card" style="padding:32px;">
+        <h2 style="margin-bottom:20px;color:var(--secondary);">Send a Message</h2>
+        <form id="contact-form">
+          <div class="form-group">
+            <label>Your Name *</label>
+            <input type="text" class="form-control" name="name" required>
+          </div>
+          <div class="form-group">
+            <label>Email *</label>
+            <input type="email" class="form-control" name="email" required>
+          </div>
+          <div class="form-group">
+            <label>Subject</label>
+            <select class="form-control" name="subject">
+              <option>General Inquiry</option>
+              <option>Order Support</option>
+              <option>Shipping & Tracking</option>
+              <option>Returns & Refunds</option>
+              <option>Account / Verification</option>
+              <option>Product Question</option>
+              <option>Other</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Order ID (if applicable)</label>
+            <input type="text" class="form-control" name="orderId" placeholder="e.g. 1001">
+          </div>
+          <div class="form-group">
+            <label>Message *</label>
+            <textarea class="form-control" name="message" rows="5" required placeholder="How can we help you?"></textarea>
+          </div>
+          <button type="submit" class="btn btn-primary btn-block" style="padding:14px;">Send Message</button>
+        </form>
+      </div>
+    </div>
+  </main>
+
+  <footer class="footer" id="site-footer"></footer>
+
+  <script src="js/data.js"></script>
+  <script src="js/app.js"></script>
+  <script>
+    document.getElementById('contact-form').addEventListener('submit', function(e) {
+      e.preventDefault();
+      const fd = new FormData(this);
+      // In a real app this would send to the server / email
+      // For this prototype we show a success message and open mailto as fallback
+      const subject = encodeURIComponent(`[OneSpeed Market] ${fd.get('subject')} - ${fd.get('name')}`);
+      const body = encodeURIComponent(
+        `Name: ${fd.get('name')}\nEmail: ${fd.get('email')}\nOrder ID: ${fd.get('orderId') || 'N/A'}\n\nMessage:\n${fd.get('message')}`
+      );
+      
+      OSM.toast('Message prepared! Opening your email client...');
+      
+      // Open user's email client pre-filled
+      setTimeout(() => {
+        window.location.href = `mailto:onespeedmail@gmail.com?subject=${subject}&body=${body}`;
+      }, 800);
+      
+      this.reset();
+    });
+  </script>
+  <style>
+    @media (max-width: 768px) {
+      .contact-grid { grid-template-columns: 1fr !important; }
+    }
+  </style>
+</body>
+</html>

@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Track Order – OneSpeed Market</title>
+  <link rel="stylesheet" href="css/styles.css">
+  <style>
+    .timeline { position: relative; padding-left: 30px; }
+    .timeline::before { content:''; position:absolute; left:10px; top:0; bottom:0; width:3px; background:linear-gradient(180deg,var(--primary),#ccc); border-radius:2px; }
+    .timeline-item { position:relative; margin-bottom:24px; }
+    .timeline-item::before { content:''; position:absolute; left:-24px; top:4px; width:14px; height:14px; border-radius:50%; background:var(--primary); box-shadow:0 0 0 4px rgba(201,162,39,0.3); }
+    .timeline-item.done::before { background:#28a745; }
+  </style>
+</head>
+<body>
+  <header class="header" id="site-header"></header>
+  <main class="container">
+    <h1 class="section-title">Track Your Package</h1>
+    <div class="card" style="padding:28px;max-width:600px;margin:0 auto 30px;">
+      <form id="track-form" class="flex gap-2" style="flex-wrap:wrap;">
+        <input type="text" class="form-control" id="track-input" placeholder="Enter Order ID or Tracking Code" style="flex:1;min-width:200px;" value="">
+        <button type="submit" class="btn btn-primary">Track</button>
+      </form>
+    </div>
+    <div id="track-result"></div>
+  </main>
+  <footer class="footer" id="site-footer"></footer>
+  <script src="js/data.js"></script>
+  <script src="js/app.js"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      const preId = getQueryParam('id');
+      if (preId) {
+        document.getElementById('track-input').value = preId;
+        showOrder(preId);
+      }
+      document.getElementById('track-form').addEventListener('submit', e => {
+        e.preventDefault();
+        const val = document.getElementById('track-input').value.trim();
+        if (val) showOrder(val);
+      });
+    });
+
+    function showOrder(query) {
+      const orders = OSM.getOrders();
+      let order = orders.find(o => String(o.id) === query || o.trackingCode === query);
+      const result = document.getElementById('track-result');
+      if (!order) {
+        result.innerHTML = `<div class="card" style="padding:30px;text-align:center;max-width:500px;margin:0 auto;"><h3>No order found</h3><p style="color:var(--text-light);">Check the Order ID or Tracking Code and try again.</p></div>`;
+        return;
+      }
+      const statusClass = {
+        pending: 'status-pending',
+        approved: 'status-approved',
+        confirmed: 'status-approved',
+        shipped: 'status-shipped',
+        delivered: 'status-delivered',
+        cancelled: 'status-cancelled'
+      }[order.status] || 'status-pending';
+
+      let historyHTML = '';
+      (order.history || []).slice().reverse().forEach(h => {
+        historyHTML += `
+          <div class="timeline-item done">
+            <strong style="text-transform:capitalize;">${h.status}</strong>
+            <div style="font-size:0.85rem;color:var(--text-light);">${new Date(h.date).toLocaleString()}</div>
+            <div style="font-size:0.9rem;">${h.note || ''}</div>
+          </div>`;
+      });
+
+      let itemsHTML = (order.items || []).map(i => `
+        <div class="flex gap-2 align-center" style="margin-bottom:10px;">
+          <img src="${i.image || ''}" style="width:50px;height:50px;object-fit:cover;border-radius:8px;" onerror="this.style.display='none'">
+          <div style="flex:1;"><strong>${i.title}</strong><br><small>×${i.qty} · ${OSM.formatPrice(i.price)}</small></div>
+        </div>`).join('');
+
+      result.innerHTML = `
+        <div class="card" style="padding:28px;max-width:700px;margin:0 auto;">
+          <div class="flex justify-between align-center" style="flex-wrap:wrap;gap:12px;margin-bottom:20px;">
+            <div>
+              <h2 style="margin:0;">Order #${order.id}</h2>
+              <span class="status ${statusClass}" style="margin-top:6px;display:inline-block;text-transform:capitalize;">${order.status}</span>
+            </div>
+            ${order.trackingCode ? `<div style="text-align:right;"><div style="font-size:0.85rem;color:var(--text-light);">Tracking Code</div><strong style="font-size:1.2rem;letter-spacing:1px;">${order.trackingCode}</strong></div>` : ''}
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;" class="track-grid">
+            <div>
+              <h4 style="margin-bottom:12px;">Items</h4>
+              ${itemsHTML}
+              <p style="margin-top:12px;font-weight:700;">Total: ${OSM.formatPrice(order.total)}</p>
+            </div>
+            <div>
+              <h4 style="margin-bottom:12px;">Shipping To</h4>
+              <p style="font-size:0.95rem;line-height:1.6;">
+                ${order.shipping?.fullName}<br>
+                ${order.shipping?.address}<br>
+                ${order.shipping?.city}, ${order.shipping?.state}<br>
+                ${order.shipping?.country} ${order.shipping?.zip || ''}<br>
+                Phone: ${order.shipping?.phone}
+              </p>
+            </div>
+          </div>
+          <h4 style="margin:24px 0 16px;">Status Timeline</h4>
+          <div class="timeline">${historyHTML || '<p>No updates yet.</p>'}</div>
+        </div>
+      `;
+    }
+  </script>
+  <style>@media(max-width:600px){.track-grid{grid-template-columns:1fr!important;}}</style>
+</body>
+</html>

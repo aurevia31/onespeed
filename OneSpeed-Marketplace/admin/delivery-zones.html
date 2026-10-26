@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Delivery Zones – OneSpeed Admin</title>
+  <link rel="stylesheet" href="../css/styles.css">
+  <style>
+    .zone-panel { padding: 24px; margin-bottom: 20px; }
+    .zone-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; }
+    .zone-grid label { display: grid; gap: 6px; font-weight: 600; }
+    .zone-table { width: 100%; border-collapse: collapse; }
+    .zone-table th, .zone-table td { padding: 10px; text-align: left; border-bottom: 1px solid #ddd; }
+    .zone-status { color: var(--text-light); margin: 10px 0; }
+  </style>
+</head>
+<body>
+  <header class="header">
+    <div class="header-inner">
+      <a href="index.html" class="logo"><img src="../assets/images/onespeed-marketplace-brand.webp" alt="OneSpeed Marketplace Admin" width="180" height="45"></a>
+      <div class="nav-actions"><a href="../index.html" class="btn btn-secondary btn-sm">View Store</a></div>
+    </div>
+  </header>
+  <div class="admin-layout">
+    <aside class="admin-sidebar">
+      <a href="index.html">Dashboard</a>
+      <a href="products.html">Products</a>
+      <a href="orders.html">Orders</a>
+      <a href="delivery-zones.html" class="active">Delivery Zones</a>
+      <a href="users.html">Users</a>
+    </aside>
+    <main class="admin-content">
+      <h1 class="section-title">Delivery Zones & Fees</h1>
+      <p>Zones match country and optionally state/province and city. The most specific matching active zone sets the delivery fee.</p>
+      <p id="zone-status" class="zone-status" role="status">Checking administrator access…</p>
+      <section id="zone-app" hidden>
+        <form id="zone-form" class="card zone-panel">
+          <input type="hidden" name="id">
+          <div class="zone-grid">
+            <label>Zone name<input class="form-control" name="name" required maxlength="120"></label>
+            <label>Country<input class="form-control" name="country" required></label>
+            <label>State / Province (optional)<input class="form-control" name="state"></label>
+            <label>City (optional)<input class="form-control" name="city"></label>
+            <label>Delivery fee<input class="form-control" name="fee" type="number" min="0" step="0.01" required></label>
+            <label>Fee currency
+              <select class="form-control" name="currency" required>
+                <option>NGN</option><option>USD</option><option>EUR</option><option>GBP</option><option>GHS</option><option>KES</option><option>ZAR</option><option>CAD</option><option>INR</option>
+              </select>
+            </label>
+          </div>
+          <label style="display:flex;align-items:center;gap:8px;margin:14px 0;"><input type="checkbox" name="is_active" checked> Zone is active</label>
+          <div class="flex gap-2">
+            <button class="btn btn-primary" type="submit">Save zone</button>
+            <button class="btn btn-secondary" id="zone-reset" type="button">Clear form</button>
+          </div>
+        </form>
+        <section class="card zone-panel">
+          <h2 style="margin-bottom:12px;">Configured zones</h2>
+          <div class="table-wrap"><table class="zone-table">
+            <thead><tr><th>Name</th><th>Coverage</th><th>Fee</th><th>Status</th><th>Actions</th></tr></thead>
+            <tbody id="zones-body"></tbody>
+          </table></div>
+        </section>
+      </section>
+    </main>
+  </div>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="../js/supabase-config.js"></script>
+  <script src="../js/supabase.js"></script>
+  <script>
+    (async () => {
+      const status = document.getElementById('zone-status');
+      const app = document.getElementById('zone-app');
+      const form = document.getElementById('zone-form');
+      const db = window.OneSpeedBackend;
+      let zones = [];
+      try {
+        if (!db.configured()) throw new Error('Delivery zone management requires Supabase. Configure the public project URL and anon key, then apply supabase/schema.sql.');
+        const user = await db.currentUser();
+        if (!user) throw new Error('Sign in with an administrator account to manage delivery zones.');
+        const profile = await db.profile();
+        if (profile?.role !== 'admin' || !profile.is_active) throw new Error('Administrator access is required.');
+        app.hidden = false;
+
+        async function loadZones() {
+          const { data, error } = await db.client().from('delivery_zones')
+            .select('id,name,country,state,city,fee,currency,is_active')
+            .order('country').order('state').order('city');
+          if (error) throw error;
+          zones = data;
+          document.getElementById('zones-body').innerHTML = zones.length ? zones.map(zone => `
+            <tr>
+              <td>${escapeHTML(zone.name)}</td>
+              <td>${[zone.city, zone.state, zone.country].filter(Boolean).map(escapeHTML).join(', ')}</td>
+              <td>${escapeHTML(zone.currency)} ${Number(zone.fee).toFixed(2)}</td>
+              <td>${zone.is_active ? 'Active' : 'Inactive'}</td>
+              <td><button class="btn btn-secondary btn-sm" type="button" data-edit="${zone.id}">Edit</button>
+                <button class="btn btn-accent btn-sm" type="button" data-delete="${zone.id}">Delete</button></td>
+            </tr>`).join('') : '<tr><td colspan="5">No delivery zones configured. Orders use the existing standard/express fee only.</td></tr>';
+        }
+
+        function clearForm() {
+          form.reset();
+          form.elements.id.value = '';
+          form.elements.currency.value = 'NGN';
+          form.elements.is_active.checked = true;
+        }
+
+        document.getElementById('zone-reset').addEventListener('click', clearForm);
+        document.getElementById('zones-body').addEventListener('click', async event => {
+          try {
+            const editId = event.target.closest('[data-edit]')?.dataset.edit;
+            const deleteId = event.target.closest('[data-delete]')?.dataset.delete;
+            if (editId) {
+              const zone = zones.find(item => item.id === editId);
+              if (!zone) return;
+              Object.entries(zone).forEach(([key, value]) => {
+                if (form.elements[key]) {
+                  if (key === 'is_active') form.elements[key].checked = value;
+                  else form.elements[key].value = value ?? '';
+                }
+              });
+              form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+            if (deleteId && window.confirm('Delete this delivery zone?')) {
+              const { error } = await db.client().from('delivery_zones').delete().eq('id', deleteId);
+              if (error) throw error;
+              await loadZones();
+            }
+          } catch (error) {
+            status.textContent = error.message || 'Could not update delivery zones.';
+          }
+        });
+        form.addEventListener('submit', async event => {
+          event.preventDefault();
+          try {
+            const values = new FormData(form);
+            const zone = {
+              name: String(values.get('name')).trim(),
+              country: String(values.get('country')).trim(),
+              state: String(values.get('state') || '').trim() || null,
+              city: String(values.get('city') || '').trim() || null,
+              fee: Number(values.get('fee')),
+              currency: String(values.get('currency')),
+              is_active: form.elements.is_active.checked,
+              updated_at: new Date().toISOString()
+            };
+            const id = String(values.get('id') || '');
+            const request = id
+              ? db.client().from('delivery_zones').update(zone).eq('id', id)
+              : db.client().from('delivery_zones').insert(zone);
+            const { error } = await request;
+            if (error) throw error;
+            clearForm();
+            await loadZones();
+          } catch (error) {
+            status.textContent = error.message || 'Could not save delivery zone.';
+          }
+        });
+        await loadZones();
+        status.textContent = 'Delivery zones are managed through Supabase row-level security.';
+      } catch (error) {
+        status.textContent = error.message || 'Could not load delivery zones.';
+      }
+    })();
+
+    function escapeHTML(value) {
+      return String(value ?? '').replace(/[&<>"']/g, character => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+      }[character]));
+    }
+  </script>
+</body>
+</html>

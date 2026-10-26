@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin Dashboard – OneSpeed Market</title>
+  <link rel="stylesheet" href="../css/styles.css">
+</head>
+<body>
+  <header class="header">
+    <div class="header-inner">
+      <a href="../index.html" class="logo"><img src="../assets/images/onespeed-marketplace-brand.webp" alt="OneSpeed Marketplace Admin" width="180" height="45"></a>
+      <div class="nav-actions">
+        <a href="../index.html" class="btn btn-secondary btn-sm">View Store</a>
+        <button class="btn btn-primary btn-sm" onclick="logout()">Logout</button>
+      </div>
+    </div>
+  </header>
+
+  <div class="admin-layout">
+    <aside class="admin-sidebar" id="sidebar">
+      <a href="index.html" class="active">Dashboard</a>
+      <a href="products.html">Products</a>
+      <a href="bank-transfers.html" class="btn btn-secondary">Bank Transfer Reviews</a>
+      <a href="orders.html">Orders</a>
+      <a href="delivery-zones.html">Delivery Zones</a>
+      <a href="users.html">Users</a>
+    </aside>
+    <main class="admin-content">
+      <h1 class="section-title">Dashboard Overview</h1>
+      <div id="stats" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px;margin-bottom:30px;"></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;" class="dash-grid">
+        <div class="card" style="padding:20px;">
+          <h3 style="margin-bottom:12px;">Recent Orders</h3>
+          <div id="recent-orders"></div>
+        </div>
+        <div class="card" style="padding:20px;">
+          <h3 style="margin-bottom:12px;">Pending Verifications</h3>
+          <div id="pending-users"></div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="../js/supabase-config.js"></script>
+  <script src="../js/supabase.js"></script>
+  <script src="../js/data.js"></script>
+  <script>
+    async function initializeDashboard() {
+      if (OneSpeedBackend.configured()) {
+        try {
+          const user = await OneSpeedBackend.currentUser();
+          const profile = user ? await OneSpeedBackend.profile() : null;
+          if (!profile || profile.role !== 'admin' || !profile.is_active) {
+            location.href = '../login.html?redirect=admin/index.html';
+            return;
+          }
+          await renderSupabaseDashboard();
+        } catch (error) {
+          showDashboardError(error.message);
+        }
+        return;
+      }
+
+      if (!OSM.isAdmin()) {
+        location.href = '../login.html';
+        return;
+      }
+      renderDemoDashboard();
+    }
+
+    function renderStats({ products, orders, pendingOrders, revenue, pendingUsers, revenueCurrency }) {
+      document.getElementById('stats').innerHTML = `
+        <div class="card" style="padding:20px;text-align:center;">
+          <div style="font-size:1.8rem;font-weight:800;color:var(--primary-dark);">${products}</div>
+          <div style="font-size:0.9rem;color:var(--text-light);">Products</div>
+        </div>
+        <div class="card" style="padding:20px;text-align:center;">
+          <div style="font-size:1.8rem;font-weight:800;color:var(--primary-dark);">${orders}</div>
+          <div style="font-size:0.9rem;color:var(--text-light);">Total Orders</div>
+        </div>
+        <div class="card" style="padding:20px;text-align:center;">
+          <div style="font-size:1.8rem;font-weight:800;color:#e94560;">${pendingOrders}</div>
+          <div style="font-size:0.9rem;color:var(--text-light);">Pending Orders</div>
+        </div>
+        <div class="card" style="padding:20px;text-align:center;">
+          <div style="font-size:1.8rem;font-weight:800;color:#28a745;">${escapeHTML(revenue === null ? '—' : revenueCurrency ? `${revenueCurrency} ${revenue.toFixed(2)}` : OSM.formatPrice(revenue))}</div>
+          <div style="font-size:0.9rem;color:var(--text-light);">Revenue (approx)</div>
+        </div>
+        <div class="card" style="padding:20px;text-align:center;">
+          <div style="font-size:1.8rem;font-weight:800;color:#fd7e14;">${pendingUsers}</div>
+          <div style="font-size:0.9rem;color:var(--text-light);">${OneSpeedBackend.configured() ? 'Pending Seller Applications' : 'Users Awaiting Verify'}</div>
+        </div>
+      `;
+    }
+
+    function renderDemoDashboard() {
+      const products = OSM.getProducts();
+      const orders = OSM.getOrders();
+      const users = OSM.getUsers();
+      const pendingOrders = orders.filter(order => order.status === 'pending').length;
+      const pendingUsers = users.filter(user => user.role === 'customer' && !user.verified).length;
+      const revenue = orders.filter(order => ['approved','confirmed','shipped','delivered'].includes(order.status))
+        .reduce((sum, order) => sum + order.total, 0);
+
+      renderStats({ products: products.length, orders: orders.length, pendingOrders, revenue, pendingUsers });
+      document.getElementById('recent-orders').innerHTML = orders.slice(0, 5).map(order => `
+        <div class="flex justify-between align-center" style="padding:8px 0;border-bottom:1px solid #eee;">
+          <span>#${order.id} · ${escapeHTML(order.shipping?.fullName || '—')}</span>
+          <span class="status status-${escapeHTML(order.status)}">${escapeHTML(order.status)}</span>
+        </div>
+      `).join('') || '<p style="color:#888;">No orders yet</p>';
+
+      document.getElementById('pending-users').innerHTML = users
+        .filter(user => !user.verified && user.role === 'customer')
+        .slice(0, 5)
+        .map(user => `
+          <div class="flex justify-between align-center" style="padding:8px 0;border-bottom:1px solid #eee;">
+            <span>${escapeHTML(user.name)} (${escapeHTML(user.email)})</span>
+            <a href="users.html" class="btn btn-sm btn-primary">Review</a>
+          </div>
+        `).join('') || '<p style="color:#888;">No pending users</p>';
+    }
+
+    async function renderSupabaseDashboard() {
+      const db = OneSpeedBackend.client();
+      const [productsResult, ordersResult, pendingOrdersResult, pendingSellersResult] = await Promise.all([
+        db.from('products').select('id', { count: 'exact', head: true }),
+        db.from('orders').select('id,order_number,status,total,currency,created_at,shipping_address', { count: 'exact' }).order('created_at', { ascending: false }).limit(100),
+        db.from('orders').select('id', { count: 'exact', head: true }).in('status', ['pending_payment','payment_review']),
+        db.from('profiles').select('id', { count: 'exact', head: true }).eq('seller_status', 'pending')
+      ]);
+      if (productsResult.error) throw productsResult.error;
+      if (ordersResult.error) throw ordersResult.error;
+      if (pendingOrdersResult.error) throw pendingOrdersResult.error;
+      if (pendingSellersResult.error) throw pendingSellersResult.error;
+
+      const orders = ordersResult.data;
+      const revenueOrders = orders.filter(order => ['paid','processing','shipped','delivered'].includes(order.status));
+      const currencies = [...new Set(revenueOrders.map(order => order.currency.trim()))];
+      const revenueCurrency = currencies.length > 1 ? 'Mixed currency' : currencies[0] || '';
+      const revenue = currencies.length > 1
+        ? null
+        : revenueOrders.reduce((sum, order) => sum + Number(order.total), 0);
+
+      renderStats({
+        products: productsResult.count || 0,
+        orders: ordersResult.count || 0,
+        pendingOrders: pendingOrdersResult.count || 0,
+        revenue,
+        pendingUsers: pendingSellersResult.count || 0,
+        revenueCurrency
+      });
+      document.getElementById('recent-orders').innerHTML = orders.slice(0, 5).map(order => `
+        <div class="flex justify-between align-center" style="padding:8px 0;border-bottom:1px solid #eee;">
+          <span>#${escapeHTML(order.order_number)} · ${escapeHTML(order.shipping_address?.fullName || '—')}</span>
+          <a href="orders.html" class="status status-${escapeHTML(order.status)}">${escapeHTML(order.status)}</a>
+        </div>
+      `).join('') || '<p style="color:#888;">No orders yet</p>';
+      document.getElementById('pending-users').innerHTML = `
+        <p>${pendingSellersResult.count || 0} seller application(s) are awaiting review.</p>
+      `;
+    }
+
+    function showDashboardError(message) {
+      document.getElementById('stats').innerHTML =
+        `<div class="card" style="padding:20px;grid-column:1/-1;">Could not load dashboard: ${escapeHTML(message)}</div>`;
+    }
+
+    async function logout() {
+      if (OneSpeedBackend.configured()) {
+        try {
+          await OneSpeedBackend.signOut();
+        } catch (error) {
+          OSM.toast('Could not log out: ' + error.message);
+          return;
+        }
+      }
+      OSM.logout();
+      location.href = '../login.html';
+    }
+
+    function escapeHTML(value) {
+      return String(value ?? '').replace(/[&<>"']/g, character => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+      }[character]));
+    }
+
+    initializeDashboard();
+  </script>
+  <style>@media(max-width:700px){.dash-grid{grid-template-columns:1fr!important;}}</style>
+</body>
+</html>

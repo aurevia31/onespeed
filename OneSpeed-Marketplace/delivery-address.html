@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Delivery Address – OneSpeed Market</title>
+  <link rel="stylesheet" href="css/styles.css">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+</head>
+<body>
+  <header class="header" id="site-header"></header>
+  <main class="container">
+    <h1 class="section-title">Delivery Address</h1>
+    <section class="card delivery-address-card">
+      <form id="delivery-address-form">
+        <div class="delivery-address-grid">
+          <div class="form-group">
+            <label for="address-full-name">Full Name</label>
+            <input class="form-control" id="address-full-name" name="fullName" autocomplete="name">
+          </div>
+          <div class="form-group">
+            <label for="address-phone">Phone Number</label>
+            <input class="form-control" id="address-phone" name="phone" type="tel" autocomplete="tel">
+          </div>
+          <div class="form-group">
+            <label for="address-country">Country *</label>
+            <input class="form-control" id="address-country" name="country" required autocomplete="country-name">
+          </div>
+          <div class="form-group">
+            <label for="address-state">State / Province (if applicable)</label>
+            <input class="form-control" id="address-state" name="state" autocomplete="address-level1">
+          </div>
+          <div class="form-group">
+            <label for="address-city">City *</label>
+            <input class="form-control" id="address-city" name="city" required autocomplete="address-level2">
+          </div>
+          <div class="form-group">
+            <label for="address-postal">Postal / ZIP Code</label>
+            <input class="form-control" id="address-postal" name="zip" autocomplete="postal-code">
+          </div>
+        </div>
+        <div class="form-group">
+          <label for="address-street">Street address *</label>
+          <input class="form-control" id="address-street" name="address" required autocomplete="street-address" placeholder="Street, house number, landmark">
+        </div>
+        <div class="form-group">
+          <label>Choose your delivery location</label>
+          <p class="form-help">Tap the map to place a marker, or drag the marker to the correct location. We do not use address autocomplete.</p>
+          <div id="delivery-map" class="delivery-map" role="application" aria-label="Select delivery location on map"></div>
+          <p id="delivery-map-message" class="delivery-map-message" hidden></p>
+          <p id="delivery-address-status" class="delivery-address-status" role="status" aria-live="polite"></p>
+          <button type="button" class="btn btn-primary" data-confirm-delivery-address>Confirm delivery address</button>
+        </div>
+      </form>
+      <div class="delivery-address-actions">
+        <a href="checkout.html" class="btn btn-secondary">Continue to checkout</a>
+        <a href="account.html">Back to My Account</a>
+      </div>
+    </section>
+  </main>
+  <footer class="footer" id="site-footer"></footer>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="js/supabase-config.js"></script>
+  <script src="js/supabase.js"></script>
+  <script src="js/data.js"></script>
+  <script src="js/app.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="js/delivery-address.js"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', async () => {
+      if (window.OneSpeedBackend?.configured()) {
+        try {
+          const user = await OneSpeedBackend.currentUser();
+          if (!user) {
+            location.href = 'login.html?redirect=' + encodeURIComponent(location.pathname + location.search);
+            return;
+          }
+        } catch (error) {
+          OSM.toast('Could not verify your account: ' + error.message);
+          return;
+        }
+      } else if (!requireLogin()) {
+        return;
+      }
+      OneSpeedDeliveryAddress.init({
+        form: document.getElementById('delivery-address-form'),
+        mapElement: document.getElementById('delivery-map'),
+        statusElement: document.getElementById('delivery-address-status'),
+        mapMessageElement: document.getElementById('delivery-map-message')
+      });
+    });
+  </script>
+</body>
+</html>

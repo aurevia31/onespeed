@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>My Account – OneSpeed Market</title>
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <header class="header" id="site-header"></header>
+  <main class="container">
+    <h1 class="section-title">My Account</h1>
+    <div id="account-content"><div class="spinner"></div></div>
+  </main>
+  <footer class="footer" id="site-footer"></footer>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="js/supabase-config.js"></script>
+  <script src="js/supabase.js"></script>
+  <script src="js/data.js"></script>
+  <script src="js/app.js"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', async () => {
+      let session = OSM.getSession();
+      let user;
+      let orders;
+      let remoteOrders = false;
+      if (window.OneSpeedBackend?.configured()) {
+        try {
+          const authUser = await OneSpeedBackend.currentUser();
+          if (!authUser) {
+            location.href = 'login.html?redirect=account.html';
+            return;
+          }
+          const profile = await OneSpeedBackend.profile();
+          session = { id: authUser.id, role: profile?.role };
+          user = {
+            name: profile?.full_name || '',
+            email: authUser.email,
+            phone: profile?.phone,
+            verified: profile?.is_active,
+            createdAt: profile?.created_at
+          };
+          orders = await OneSpeedBackend.listCustomerOrders(authUser.id);
+          remoteOrders = true;
+        } catch (error) {
+          document.getElementById('account-content').innerHTML =
+            `<div class="card" style="padding:24px;">Could not load your account: ${escapeHTML(error.message)}</div>`;
+          return;
+        }
+      } else {
+        if (!requireLogin()) return;
+        user = OSM.getUser(session.id);
+        orders = OSM.getUserOrders(session.id);
+      }
+      if (session.role === 'admin') {
+        location.href = 'admin/index.html';
+        return;
+      }
+
+      let ordersHTML = orders.length === 0
+        ? '<p style="color:var(--text-light);">No orders yet. <a href="index.html">Start shopping</a></p>'
+        : `<div class="table-wrap"><table>
+            <thead><tr><th>Order</th><th>Date</th><th>Total</th><th>Status</th><th></th></tr></thead>
+            <tbody>
+              ${orders.map(o => `
+                <tr>
+                  <td>#${escapeHTML(remoteOrders ? o.order_number : o.id)}</td>
+                  <td>${new Date(remoteOrders ? o.created_at : o.createdAt).toLocaleDateString()}</td>
+                  <td>${remoteOrders ? `${escapeHTML(o.currency)} ${Number(o.total).toFixed(2)}` : OSM.formatPrice(o.total)}</td>
+                  <td><span class="status status-${escapeHTML(o.status)}">${escapeHTML(o.status)}</span></td>
+                  <td><a href="${remoteOrders ? `order-success.html?id=${encodeURIComponent(o.id)}` : `track.html?id=${o.id}`}" class="btn btn-secondary btn-sm">${remoteOrders ? 'Details' : 'Track'}</a></td>
+                </tr>`).join('')}
+            </tbody></table></div>`;
+
+      document.getElementById('account-content').innerHTML = `
+        <div style="display:grid;grid-template-columns:280px 1fr;gap:24px;" class="account-grid">
+          <div class="card" style="padding:24px;">
+            <h3 style="margin-bottom:16px;">Profile</h3>
+            <p><strong>Name:</strong> ${escapeHTML(user.name)}</p>
+            <p><strong>Email:</strong> ${escapeHTML(user.email)}</p>
+            <p><strong>Phone:</strong> ${escapeHTML(user.phone || '—')}</p>
+            <p><strong>Status:</strong> ${user.verified ? '<span class="status status-approved">Verified</span>' : '<span class="status status-pending">Pending Verification</span>'}</p>
+            <p style="margin-top:14px;"><a href="delivery-address.html" class="btn btn-secondary btn-sm">Manage delivery address</a></p>
+            ${user.createdAt ? `<p style="font-size:0.85rem;color:var(--text-light);margin-top:12px;">Member since ${new Date(user.createdAt).toLocaleDateString()}</p>` : ''}
+          </div>
+          <div>
+            <h3 class="section-title" style="font-size:1.2rem;">My Orders</h3>
+            ${ordersHTML}
+          </div>
+        </div>
+      `;
+    });
+
+    function escapeHTML(value) {
+      return String(value ?? '').replace(/[&<>"']/g, character => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+      }[character]));
+    }
+  </script>
+  <style>@media(max-width:700px){.account-grid{grid-template-columns:1fr!important;}}</style>
+</body>
+</html>
