@@ -5,13 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Manage Products – OneSpeed Admin</title>
   <link rel="stylesheet" href="../css/styles.css">
+  <style>html[data-admin-auth="checking"] body{visibility:hidden}</style>
+  <script>document.documentElement.dataset.adminAuth = 'checking';</script>
 </head>
 <body>
   <header class="header">
     <div class="header-inner">
       <a href="index.html" class="logo"><img src="../assets/images/onespeed-marketplace-brand.webp" alt="OneSpeed Marketplace Admin" width="180" height="45"></a>
       <div class="nav-actions">
-        <button class="btn btn-primary btn-sm" onclick="openAddModal()">+ Add Product</button>
         <a href="../index.html" class="btn btn-secondary btn-sm">View Store</a>
       </div>
     </div>
@@ -27,14 +28,22 @@
     <main class="admin-content">
       <div class="flex justify-between align-center mb-2" style="flex-wrap:wrap;gap:12px;">
         <h1 class="section-title" style="margin:0;">Products <span id="count" style="font-size:1rem;color:var(--text-light);"></span></h1>
-        <input type="text" class="form-control" id="search" placeholder="Search products..." style="max-width:260px;" oninput="renderGrid()">
+        <input type="search" class="form-control" id="search" placeholder="Search products..." aria-label="Search products" style="max-width:260px;">
       </div>
-      <p style="font-size:0.85rem;color:var(--text-light);margin-bottom:16px;">Tap any tile to edit. Products are stored compactly. You can add as many as needed.</p>
+      <div class="product-admin-filters"><label>Listing status
+        <select class="form-control" id="status-filter"><option value="">All statuses</option><option>pending_review</option><option>active</option><option>draft</option><option>rejected</option><option>archived</option></select>
+      </label></div>
+      <p id="product-status" role="status">Loading products…</p>
       <div class="admin-product-grid" id="grid"></div>
+      <nav class="admin-pagination" aria-label="Product pages">
+        <button class="btn btn-secondary btn-sm" id="products-previous" type="button" disabled>Previous</button>
+        <span id="products-page" aria-live="polite"></span>
+        <button class="btn btn-secondary btn-sm" id="products-next" type="button" disabled>Next</button>
+      </nav>
     </main>
   </div>
 
-  <!-- Edit / Add Modal -->
+  <!-- Listing details and moderation -->
   <div class="modal-overlay" id="modal">
     <div class="modal">
       <div class="modal-header">
@@ -49,7 +58,7 @@
             <input type="text" class="form-control" name="title" required>
           </div>
           <div class="form-group">
-            <label>Price (USD) *</label>
+            <label>Price *</label>
             <input type="number" class="form-control" name="price" step="0.01" min="0" required>
           </div>
           <div class="form-group">
@@ -64,13 +73,21 @@
             <input type="number" class="form-control" name="stock" min="0" value="100">
           </div>
           <div class="form-group">
+            <label>Listing status</label>
+            <select class="form-control" name="status"><option>draft</option><option>pending_review</option><option>active</option><option>rejected</option><option>archived</option></select>
+          </div>
+          <div class="form-group">
+            <label>Moderation note (required when rejecting)</label>
+            <textarea class="form-control" name="moderationNote" rows="2" maxlength="1000"></textarea>
+          </div>
+          <div class="form-group">
             <label>Product image URL</label>
             <input type="url" class="form-control" name="image" placeholder="https://... or upload an image below">
           </div>
           <div class="form-group">
             <label>Upload product image</label>
-            <input type="file" class="form-control" id="image-upload" accept="image/jpeg,image/png,image/webp,image/avif">
-            <small class="form-help">Upload a real product photo. It is resized and compressed for browser storage; use a URL for very large catalogues.</small>
+            <input type="file" class="form-control" id="image-upload" name="upload" accept="image/jpeg,image/png,image/webp,image/avif">
+            <small class="form-help">Upload JPG, PNG, WebP or AVIF up to 5 MB to Supabase Storage, or use an image URL.</small>
             <img id="image-preview" class="admin-image-preview" src="../assets/images/product-placeholder.svg" alt="Product image preview" width="180" height="180">
           </div>
           <div class="form-group">
@@ -79,146 +96,189 @@
           </div>
           <div class="flex gap-2">
             <button type="submit" class="btn btn-primary" style="flex:1;">Save Product</button>
-            <button type="button" class="btn btn-accent" id="delete-btn" style="display:none;" onclick="deleteCurrent()">Delete</button>
+            <button type="button" class="btn btn-secondary" id="archive-btn" style="display:none;">Archive listing</button>
           </div>
         </form>
       </div>
     </div>
   </div>
 
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="../js/supabase-config.js"></script>
+  <script src="../js/supabase.js"></script>
+  <script src="../js/admin-auth.js"></script>
   <script src="../js/data.js"></script>
   <script>
-    if (!OSM.isAdmin()) { location.href = '../login.html'; }
-
-    let currentId = null;
-    let uploadedImageData = '';
+    let products = [];
+    let currentId = '';
+    let productPage = 0;
+    let productCount = 0;
+    let loadSequence = 0;
+    const pageSize = 30;
+    const form = document.getElementById('product-form');
     const imageUpload = document.getElementById('image-upload');
     const imagePreview = document.getElementById('image-preview');
-    const imageUrlInput = document.querySelector('[name=image]');
-
-    imageUrlInput.addEventListener('input', () => { if (!uploadedImageData) imagePreview.src = imageUrlInput.value || '../assets/images/product-placeholder.svg'; });
-    imageUpload.addEventListener('change', async () => {
-      const file = imageUpload.files && imageUpload.files[0];
-      if (!file) return;
-      if (!file.type.startsWith('image/')) { OSM.toast('Choose a valid image file'); imageUpload.value = ''; return; }
+    const imageUrlInput = form.elements.image;
+    const status = document.getElementById('product-status');
+    const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
+    const imageURL = value => {
       try {
-        const compact = await compressProductImage(file);
-        if (compact.length > 900000) { OSM.toast('Image is still too large. Choose a smaller image.'); return; }
-        uploadedImageData = compact;
-        imageUrlInput.value = '';
-        imagePreview.src = compact;
-      } catch (error) { OSM.toast('Could not process this image. Try JPG, PNG or WebP.'); }
-    });
+        const url = new URL(value || '../assets/images/product-placeholder.svg', location.href);
+        return url.protocol === 'https:' || (url.origin === location.origin && url.protocol === 'http:')
+          ? url.href : '../assets/images/product-placeholder.svg';
+      } catch { return '../assets/images/product-placeholder.svg'; }
+    };
 
-    function compressProductImage(file) {
-      return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onerror = reject;
-        reader.onload = () => {
-          const img = new Image();
-          img.onerror = reject;
-          img.onload = () => {
-            const max = 1000; const scale = Math.min(1, max / Math.max(img.width, img.height));
-            const canvas = document.createElement('canvas');
-            canvas.width = Math.max(1, Math.round(img.width * scale));
-            canvas.height = Math.max(1, Math.round(img.height * scale));
-            const ctx = canvas.getContext('2d');
-            if (!ctx) return reject(new Error('Canvas unavailable'));
-            ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, canvas.width, canvas.height);
-            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-            resolve(canvas.toDataURL('image/webp', 0.82));
-          };
-          img.src = reader.result;
-        };
-        reader.readAsDataURL(file);
-      });
+    async function loadProducts(resetPage = false) {
+      if (resetPage) productPage = 0;
+      const sequence = ++loadSequence;
+      status.textContent = 'Loading products…';
+      try {
+        const db = OneSpeedBackend.client();
+        let request = db.from('products')
+          .select('id,title,description,price,currency,category,stock,image_url,seller_id,status,moderation_note,created_at', { count: 'exact' });
+        const query = document.getElementById('search').value.trim();
+        const filterStatus = document.getElementById('status-filter').value;
+        if (query) request = request.textSearch('search_document', query, { type: 'websearch', config: 'english' });
+        if (filterStatus) request = request.eq('status', filterStatus);
+        const { data, error, count } = await request
+          .order('created_at', { ascending: false })
+          .order('id', { ascending: false })
+          .range(productPage * pageSize, productPage * pageSize + pageSize - 1);
+        if (error) throw error;
+        if (sequence !== loadSequence) return;
+        products = data;
+        productCount = count || 0;
+        const first = productCount ? productPage * pageSize + 1 : 0;
+        const last = Math.min((productPage + 1) * pageSize, productCount);
+        status.textContent = `Showing ${first}–${last} of ${productCount} products.`;
+        document.getElementById('products-page').textContent = productCount
+          ? `Page ${productPage + 1} of ${Math.ceil(productCount / pageSize)}` : 'No results';
+        document.getElementById('products-previous').disabled = productPage === 0;
+        document.getElementById('products-next').disabled = last >= productCount;
+        renderGrid();
+      } catch (error) {
+        if (sequence !== loadSequence) return;
+        status.textContent = error.message || 'Could not load products.';
+        products = [];
+        productCount = 0;
+        renderGrid();
+      }
     }
 
     function renderGrid() {
-      const q = (document.getElementById('search').value || '').toLowerCase();
-      let products = OSM.getProducts();
-      if (q) products = products.filter(p => p.title.toLowerCase().includes(q) || p.category.toLowerCase().includes(q));
-      document.getElementById('count').textContent = `(${products.length})`;
-      document.getElementById('grid').innerHTML = products.map(p => `
-        <div class="admin-product-tile" onclick="openEdit(${p.id})">
-          <img src="${p.image || '../assets/images/product-placeholder.svg'}" alt="${p.title.replace(/&/g, '&amp;').replace(/"/g, '&quot;')}" loading="lazy" onerror="this.onerror=null;this.src='../assets/images/product-placeholder.svg'">
-          <div class="title">${p.title}</div>
-          <div class="price">$${Number(p.price).toFixed(2)}</div>
-          <div style="font-size:0.7rem;color:#888;">${p.category} · ${p.stock} left</div>
-        </div>
-      `).join('') || '<p style="grid-column:1/-1;text-align:center;padding:40px;color:#888;">No products. Click + Add Product.</p>';
-    }
-
-    function openAddModal() {
-      currentId = null;
-      document.getElementById('modal-title').textContent = 'Add New Product';
-      document.getElementById('product-form').reset();
-      uploadedImageData = ''; imagePreview.src = '../assets/images/product-placeholder.svg';
-      document.querySelector('[name=id]').value = '';
-      document.getElementById('delete-btn').style.display = 'none';
-      document.getElementById('modal').classList.add('show');
+      document.getElementById('count').textContent = `(${productCount})`;
+      document.getElementById('grid').innerHTML = products.map(product => `
+        <button type="button" class="admin-product-tile" data-product="${esc(product.id)}">
+          <img src="${esc(imageURL(product.image_url || product.images?.[0]))}" alt="" loading="lazy" onerror="this.onerror=null;this.src='../assets/images/product-placeholder.svg'">
+          <span class="title">${esc(product.title)}</span>
+          <span class="price">${esc(product.currency)} ${Number(product.price).toFixed(2)}</span>
+          <span class="admin-product-meta">${esc(product.category)} · ${Number(product.stock)} in stock</span>
+          <span class="status status-${product.status === 'active' ? 'approved' : product.status === 'rejected' ? 'rejected' : 'pending'}">${esc(product.status.replace('_',' '))}</span>
+          ${product.moderation_note ? `<span class="admin-product-meta">${esc(product.moderation_note)}</span>` : ''}
+          <span class="admin-product-meta">Seller ${esc(product.seller_id)}</span>
+        </button>`).join('') || '<p class="page-state">No products match these filters.</p>';
     }
 
     function openEdit(id) {
-      const p = OSM.getProduct(id);
-      if (!p) return;
-      currentId = id;
-      document.getElementById('modal-title').textContent = 'Edit Product';
-      const form = document.getElementById('product-form');
-      form.title.value = p.title;
-      form.price.value = p.price;
-      form.category.value = p.category || 'Other';
-      form.stock.value = p.stock;
-      form.image.value = p.image && !p.image.startsWith('data:') ? p.image : '';
-      uploadedImageData = p.image && p.image.startsWith('data:') ? p.image : '';
-      imagePreview.src = p.image || '../assets/images/product-placeholder.svg';
+      const product = products.find(item => item.id === id);
+      if (!product) return;
+      currentId = product.id;
+      form.elements.id.value = product.id;
+      form.elements.title.value = product.title;
+      form.elements.price.value = product.price;
+      form.elements.category.value = product.category || 'Other';
+      form.elements.stock.value = product.stock;
+      form.elements.status.value = product.status;
+      form.elements.moderationNote.value = product.moderation_note || '';
+      form.elements.image.value = product.image_url || '';
+      form.elements.description.value = product.description || '';
       imageUpload.value = '';
-      form.description.value = p.description || '';
-      form.id.value = p.id;
-      document.getElementById('delete-btn').style.display = 'inline-flex';
+      imagePreview.src = imageURL(product.image_url);
+      document.getElementById('archive-btn').style.display = 'inline-flex';
       document.getElementById('modal').classList.add('show');
     }
 
-    function closeModal() {
-      document.getElementById('modal').classList.remove('show');
-    }
+    function closeModal() { document.getElementById('modal').classList.remove('show'); }
 
-    function deleteCurrent() {
-      if (!currentId || !confirm('Delete this product?')) return;
-      OSM.deleteProduct(currentId);
-      closeModal();
-      renderGrid();
-      OSM.toast('Product deleted');
-    }
-
-    document.getElementById('product-form').addEventListener('submit', e => {
-      e.preventDefault();
-      const fd = new FormData(e.target);
-      const data = {
-        title: fd.get('title'),
-        price: parseFloat(fd.get('price')),
-        category: fd.get('category'),
-        stock: parseInt(fd.get('stock')) || 0,
-        image: uploadedImageData || fd.get('image') || '',
-        description: fd.get('description')
-      };
-      if (currentId) {
-        OSM.updateProduct(currentId, data);
-        OSM.toast('Product updated');
-      } else {
-        OSM.addProduct(data);
-        OSM.toast('Product added');
+    imageUrlInput.addEventListener('input', () => {
+      if (!imageUpload.files?.length) imagePreview.src = imageUrlInput.value || '../assets/images/product-placeholder.svg';
+    });
+    imageUpload.addEventListener('change', () => {
+      const file = imageUpload.files?.[0];
+      if (!file) return;
+      if (!/^image\/(jpeg|png|webp|avif)$/.test(file.type) || file.size > 5 * 1024 * 1024) {
+        OSM.toast('Choose a JPG, PNG, WebP or AVIF image up to 5 MB.');
+        imageUpload.value = '';
+        return;
       }
-      closeModal();
-      uploadedImageData = ''; imageUpload.value = '';
-      renderGrid();
+      imageUrlInput.value = '';
+      imagePreview.src = URL.createObjectURL(file);
     });
-
-    document.getElementById('modal').addEventListener('click', e => {
-      if (e.target.id === 'modal') closeModal();
+    document.getElementById('grid').addEventListener('click', event => {
+      const button = event.target.closest('[data-product]');
+      if (button) openEdit(button.dataset.product);
     });
-
-    renderGrid();
+    let searchTimer;
+    document.getElementById('search').addEventListener('input', () => {
+      clearTimeout(searchTimer);
+      searchTimer = setTimeout(() => loadProducts(true), 250);
+    });
+    document.getElementById('status-filter').addEventListener('change', () => loadProducts(true));
+    document.getElementById('products-previous').addEventListener('click', () => {
+      if (productPage > 0) { productPage -= 1; loadProducts(); }
+    });
+    document.getElementById('products-next').addEventListener('click', () => {
+      if ((productPage + 1) * pageSize < productCount) { productPage += 1; loadProducts(); }
+    });
+    document.getElementById('archive-btn').addEventListener('click', async () => {
+      if (!currentId || !confirm('Archive this listing? It will no longer be available in the storefront.')) return;
+      try {
+        const { error } = await OneSpeedBackend.client().from('products').update({ status: 'archived' }).eq('id', currentId);
+        if (error) throw error;
+        closeModal();
+        await loadProducts();
+      } catch (error) { OSM.toast(error.message || 'Could not archive listing.'); }
+    });
+    form.addEventListener('submit', async event => {
+      event.preventDefault();
+      if (!currentId) return;
+      const button = event.submitter;
+      button.disabled = true;
+      try {
+        const values = new FormData(form);
+        const nextStatus = String(values.get('status'));
+        const moderationNote = String(values.get('moderationNote') || '').trim();
+        if (nextStatus === 'rejected' && moderationNote.length < 5) {
+          OSM.toast('Add a clear rejection note of at least 5 characters.');
+          return;
+        }
+        let imageUrl = String(values.get('image') || '').trim() || null;
+        const file = values.get('upload');
+        if (file?.size) imageUrl = (await OneSpeedBackend.uploadProductImage(file)).url;
+        const { error } = await OneSpeedBackend.client().from('products').update({
+          title: String(values.get('title')).trim(),
+          price: Number(values.get('price')),
+          category: String(values.get('category')).trim(),
+          stock: Number(values.get('stock')),
+          status: nextStatus,
+          moderation_note: nextStatus === 'rejected' ? moderationNote : null,
+          image_url: imageUrl,
+          images: imageUrl ? [imageUrl] : [],
+          description: String(values.get('description') || '').trim(),
+          updated_at: new Date().toISOString()
+        }).eq('id', currentId);
+        if (error) throw error;
+        closeModal();
+        await loadProducts();
+      } catch (error) { OSM.toast(error.message || 'Could not save product.'); }
+      finally { button.disabled = false; }
+    });
+    document.getElementById('modal').addEventListener('click', event => {
+      if (event.target.id === 'modal') closeModal();
+    });
+    document.querySelector('.modal-close').addEventListener('click', closeModal);
+    OneSpeedAdmin.ready.then(admin => { if (admin) loadProducts(); });
   </script>
 </body>
 </html>

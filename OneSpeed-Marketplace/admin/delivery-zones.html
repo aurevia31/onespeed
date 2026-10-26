@@ -5,6 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Delivery Zones – OneSpeed Admin</title>
   <link rel="stylesheet" href="../css/styles.css">
+  <style>html[data-admin-auth="checking"] body{visibility:hidden}</style>
+  <script>document.documentElement.dataset.adminAuth = 'checking';</script>
   <style>
     .zone-panel { padding: 24px; margin-bottom: 20px; }
     .zone-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; }
@@ -67,6 +69,7 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="../js/supabase-config.js"></script>
   <script src="../js/supabase.js"></script>
+  <script src="../js/admin-auth.js"></script>
   <script>
     (async () => {
       const status = document.getElementById('zone-status');

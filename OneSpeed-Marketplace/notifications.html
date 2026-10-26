@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Notifications – OneSpeed Marketplace</title>
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <header class="header" id="site-header"></header>
+  <main class="container">
+    <h1 class="section-title">Notifications</h1>
+    <div id="notification-state" class="card page-state" role="status">Loading notifications…</div>
+    <div id="notification-list" class="notification-list"></div>
+  </main>
+  <footer class="footer" id="site-footer"></footer>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="js/supabase-config.js"></script>
+  <script src="js/supabase.js"></script>
+  <script src="js/data.js"></script>
+  <script src="js/app.js"></script>
+  <script>
+    const state = document.getElementById('notification-state');
+    const list = document.getElementById('notification-list');
+    const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
+
+    async function loadNotifications() {
+      try {
+        if (!OneSpeedBackend.configured()) throw new Error('Notifications require Supabase and the marketplace operations migration.');
+        if (!await OneSpeedBackend.currentUser()) {
+          location.href = 'login.html?redirect=notifications.html';
+          return;
+        }
+        const notifications = await OneSpeedBackend.listNotifications();
+        const unread = notifications.filter(item => !item.read_at).length;
+        state.textContent = `${unread} unread · ${notifications.length} notification${notifications.length === 1 ? '' : 's'}.`;
+        list.innerHTML = notifications.map(item => `
+          <article class="card notification-card ${item.read_at ? '' : 'is-unread'}">
+            <div class="flex justify-between align-center notification-heading">
+              <h2>${esc(item.title)}</h2>
+              <time datetime="${esc(item.created_at)}">${esc(new Date(item.created_at).toLocaleString())}</time>
+            </div>
+            <p>${esc(item.message)}</p>
+            <div class="notification-actions">
+              ${item.href ? `<a class="btn btn-secondary btn-sm" href="${esc(item.href)}">View details</a>` : ''}
+              ${item.read_at ? '<span class="status status-approved">Read</span>' : `<button class="btn btn-primary btn-sm" type="button" data-read="${esc(item.id)}">Mark as read</button>`}
+            </div>
+          </article>`).join('') || '<p class="card page-state">You have no notifications yet.</p>';
+      } catch (error) { state.textContent = error.message || 'Could not load notifications.'; }
+    }
+
+    list.addEventListener('click', async event => {
+      const button = event.target.closest('[data-read]');
+      if (!button) return;
+      button.disabled = true;
+      try {
+        await OneSpeedBackend.markNotificationRead(button.dataset.read);
+        await loadNotifications();
+      } catch (error) {
+        button.disabled = false;
+        state.textContent = error.message || 'Could not mark notification as read.';
+      }
+    });
+    document.addEventListener('DOMContentLoaded', loadNotifications);
+  </script>
+</body>
+</html>

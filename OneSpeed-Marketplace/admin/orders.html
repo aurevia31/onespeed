@@ -5,6 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Manage Orders – OneSpeed Admin</title>
   <link rel="stylesheet" href="../css/styles.css">
+  <style>html[data-admin-auth="checking"] body{visibility:hidden}</style>
+  <script>document.documentElement.dataset.adminAuth = 'checking';</script>
 </head>
 <body>
   <header class="header">
@@ -26,7 +28,11 @@
     </aside>
     <main class="admin-content">
       <h1 class="section-title">Orders Management</h1>
-      <p style="font-size:0.9rem;color:var(--text-light);margin-bottom:16px;">Approve → Confirm → Generate Tracking Code → Mark Shipped / Delivered</p>
+      <p style="font-size:0.9rem;color:var(--text-light);margin-bottom:16px;">Payment status is verified separately from fulfillment. Orders can move only through the backend-approved transitions.</p>
+      <div class="catalog-toolbar" style="margin:16px 0;">
+        <label>Search orders<input class="form-control" id="order-search" type="search" placeholder="Order number, customer, phone"></label>
+        <label>Order status<select class="form-control" id="order-status-filter"><option value="">All statuses</option><option>pending_payment</option><option>payment_review</option><option>paid</option><option>processing</option><option>shipped</option><option>delivered</option><option>cancelled</option><option>refund_pending</option><option>refunded</option></select></label>
+      </div>
       <div class="table-wrap">
         <table>
           <thead>
@@ -60,12 +66,30 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="../js/supabase-config.js"></script>
   <script src="../js/supabase.js"></script>
+  <script src="../js/admin-auth.js"></script>
   <script src="../js/data.js"></script>
   <script>
+    let supabaseOrders = [];
+    let supabaseOrdersLoaded = false;
+    function filterOrders(orders) {
+      const query = document.getElementById('order-search').value.trim().toLowerCase();
+      const status = document.getElementById('order-status-filter').value;
+      return orders.filter(order => {
+        const name = order.shipping_address?.fullName || order.shipping?.fullName || '';
+        const phone = order.shipping_address?.phone || order.shipping?.phone || '';
+        return (!status || order.status === status) &&
+          (!query || [order.order_number, order.id, name, phone].some(value => String(value || '').toLowerCase().includes(query)));
+      });
+    }
+
     async function renderOrders() {
       if (OneSpeedBackend.configured()) {
         try {
-          const orders = await OneSpeedBackend.listOrders();
+          if (!supabaseOrdersLoaded) {
+            supabaseOrders = await OneSpeedBackend.listOrders();
+            supabaseOrdersLoaded = true;
+          }
+          const orders = filterOrders(supabaseOrders);
           document.getElementById('orders-body').innerHTML = orders.map(o => `
             <tr>
               <td><strong>#${escapeHTML(o.order_number)}</strong></td>
@@ -82,7 +106,7 @@
         }
         return;
       }
-      const orders = OSM.getOrders();
+      const orders = filterOrders(OSM.getOrders());
       document.getElementById('orders-body').innerHTML = orders.map(o => `
         <tr>
           <td><strong>#${o.id}</strong></td>
@@ -143,12 +167,53 @@
           <h4 style="margin:16px 0 8px;">Shipping</h4>
           <p style="font-size:0.9rem;line-height:1.5;">${escapeHTML(address.fullName)}<br>${escapeHTML(address.address)}<br>${escapeHTML([address.city, address.state, address.zip, address.country].filter(Boolean).join(', '))}<br>${escapeHTML(address.phone)} · ${escapeHTML(address.email)}</p>
           ${locationDetails(address)}
+          ${supabaseOrderActions(order)}
         `;
         document.getElementById('modal').classList.add('show');
       } catch (error) {
         OSM.toast('Could not load order details: ' + error.message);
       }
     }
+
+    function supabaseOrderActions(order) {
+      const next = {
+        pending_payment: [['cancelled', 'Cancel unpaid order']],
+        paid: [['processing', 'Start processing'], ['cancelled', 'Cancel order'], ['refund_pending', 'Request refund']],
+        processing: [['shipped', 'Mark shipped'], ['cancelled', 'Cancel order'], ['refund_pending', 'Request refund']],
+        shipped: [['delivered', 'Mark delivered'], ['refund_pending', 'Request refund']],
+        refund_pending: [['refunded', 'Confirm refund'], ['processing', 'Resume processing']]
+      }[order.status] || [];
+      if (!next.length) return '<p class="page-state">No further fulfillment transition is available for this order.</p>';
+      return `<div class="order-status-actions"><h4>Update fulfillment status</h4>
+        ${next.map(([status, label]) => `<button class="btn ${status === 'cancelled' || status === 'refunded' ? 'btn-accent' : 'btn-primary'} btn-sm" data-order-status="${escapeHTML(status)}" data-order-id="${escapeHTML(order.id)}">${escapeHTML(label)}</button>`).join('')}
+      </div>`;
+    }
+
+    document.getElementById('modal-body').addEventListener('click', async event => {
+      const button = event.target.closest('[data-order-status]');
+      if (!button) return;
+      const nextStatus = button.dataset.orderStatus;
+      const orderId = button.dataset.orderId;
+      if (!confirm(`Change this order to ${nextStatus.replaceAll('_',' ')}?`)) return;
+      let trackingNumber = '';
+      let carrier = '';
+      if (nextStatus === 'shipped') {
+        trackingNumber = prompt('Tracking number (required):') || '';
+        if (trackingNumber.trim().length < 3) return;
+        carrier = prompt('Carrier (optional):') || '';
+      }
+      button.disabled = true;
+      try {
+        await OneSpeedBackend.setAdminOrderStatus(orderId, nextStatus, trackingNumber.trim(), carrier.trim());
+        supabaseOrdersLoaded = false;
+        OSM.toast('Order status updated.');
+        closeModal();
+        await renderOrders();
+      } catch (error) {
+        OSM.toast(error.message || 'Could not update order.');
+        button.disabled = false;
+      }
+    });
 
     function locationDetails(address = {}) {
       const latitude = Number(address.latitude);
@@ -169,6 +234,8 @@
       OSM.updateOrder(id, { status, note: `Admin set status to ${status}` });
       OSM.toast('Order updated to ' + status);
       closeModal();
+      document.getElementById('order-search').addEventListener('input', () => renderOrders());
+      document.getElementById('order-status-filter').addEventListener('change', () => renderOrders());
       renderOrders();
     }
 
@@ -194,7 +261,7 @@
           const user = await OneSpeedBackend.currentUser();
           const profile = user ? await OneSpeedBackend.profile() : null;
           if (!profile || profile.role !== 'admin' || !profile.is_active) {
-            location.href = '../login.html?redirect=admin/orders.html';
+            location.href = '/admin/login.html?redirect=%2Fadmin%2Forders.html';
             return;
           }
         } catch (error) {
@@ -202,8 +269,8 @@
             `<tr><td colspan="7">${escapeHTML(error.message || 'Could not verify administrator access.')}</td></tr>`;
           return;
         }
-      } else if (!OSM.isAdmin()) {
-        location.href = '../login.html';
+      } else {
+        location.href = '/admin/login.html';
         return;
       }
       await renderOrders();

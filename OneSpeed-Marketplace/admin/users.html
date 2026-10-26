@@ -3,8 +3,10 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Manage Users – OneSpeed Admin</title>
+  <title>Seller Applications – OneSpeed Admin</title>
   <link rel="stylesheet" href="../css/styles.css">
+  <style>html[data-admin-auth="checking"] body{visibility:hidden}.application-panel{padding:20px;margin-bottom:16px}.application-table{width:100%;border-collapse:collapse}.application-table th,.application-table td{text-align:left;padding:10px;border-bottom:1px solid #ddd;vertical-align:top}</style>
+  <script>document.documentElement.dataset.adminAuth="checking";</script>
 </head>
 <body>
   <header class="header">
@@ -12,80 +14,140 @@
       <a href="index.html" class="logo"><img src="../assets/images/onespeed-marketplace-brand.webp" alt="OneSpeed Marketplace Admin" width="180" height="45"></a>
       <div class="nav-actions">
         <a href="../index.html" class="btn btn-secondary btn-sm">View Store</a>
+        <button class="btn btn-primary btn-sm" onclick="adminLogout()">Logout</button>
       </div>
     </div>
   </header>
-
   <div class="admin-layout">
     <aside class="admin-sidebar">
       <a href="index.html">Dashboard</a>
       <a href="products.html">Products</a>
       <a href="orders.html">Orders</a>
-      <a href="users.html" class="active">Users</a>
+      <a href="delivery-zones.html">Delivery Zones</a>
+      <a href="users.html" class="active">Seller Applications</a>
     </aside>
     <main class="admin-content">
-      <h1 class="section-title">User Management & Verification</h1>
-      <p style="font-size:0.9rem;color:var(--text-light);margin-bottom:16px;">New customer accounts require your approval before they can login and see prices / purchase.</p>
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>ID</th>
-              <th>Name</th>
-              <th>Email</th>
-              <th>Phone</th>
-              <th>Role</th>
-              <th>Verified</th>
-              <th>Joined</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
+      <h1 class="section-title">Seller Applications</h1>
+      <p>Applicants can continue shopping while you review their store details. Approving grants seller privileges; rejecting leaves their customer account active.</p>
+      <p id="application-status" role="status">Loading applications…</p>
+      <div id="applications"></div>
+      <section class="admin-user-management">
+        <h2 class="section-title">Customer and seller accounts</h2>
+        <label class="admin-user-search">Search accounts
+          <input class="form-control" id="user-search" type="search" placeholder="Name, email, or phone">
+        </label>
+        <p id="user-status" role="status">Loading accounts…</p>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Seller status</th><th>Account</th><th>Joined</th><th>Actions</th></tr></thead>
           <tbody id="users-body"></tbody>
-        </table>
-      </div>
+        </table></div>
+      </section>
     </main>
   </div>
-
-  <script src="../js/data.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="../js/supabase-config.js"></script>
+  <script src="../js/supabase.js"></script>
+  <script src="../js/admin-auth.js"></script>
   <script>
-    if (!OSM.isAdmin()) location.href = '../login.html';
+    const statusEl = document.getElementById('application-status');
+    const listEl = document.getElementById('applications');
+    const userStatus = document.getElementById('user-status');
+    const usersBody = document.getElementById('users-body');
+    const escapeHTML = value => String(value ?? '').replace(/[&<>"']/g, character => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    }[character]));
 
-    function renderUsers() {
-      const users = OSM.getUsers();
-      document.getElementById('users-body').innerHTML = users.map(u => `
-        <tr>
-          <td>${u.id}</td>
-          <td>${u.name}</td>
-          <td>${u.email}</td>
-          <td>${u.phone || '—'}</td>
-          <td><span class="badge">${u.role}</span></td>
-          <td>${u.verified ? '<span class="status status-approved">Yes</span>' : '<span class="status status-pending">No</span>'}</td>
-          <td>${new Date(u.createdAt).toLocaleDateString()}</td>
-          <td>
-            ${!u.verified && u.role === 'customer' ? `
-              <button class="btn btn-primary btn-sm" onclick="verify(${u.id})">Approve</button>
-            ` : u.role === 'customer' ? `
-              <button class="btn btn-secondary btn-sm" onclick="revoke(${u.id})">Revoke</button>
-            ` : '—'}
-          </td>
-        </tr>
-      `).join('');
+    async function loadApplications() {
+      const db = OneSpeedBackend.client();
+      const { data: applications, error } = await db.from('seller_profiles')
+        .select('user_id,store_name,description,support_email,contact_phone,address,application_note,applied_at')
+        .eq('application_status', 'pending')
+        .order('applied_at', { ascending: true });
+      if (error) throw error;
+      const profilesResult = applications.length
+        ? await db.from('profiles').select('id,full_name,phone').in('id', applications.map(application => application.user_id))
+        : { data: [], error: null };
+      if (profilesResult.error) throw profilesResult.error;
+      const profiles = new Map(profilesResult.data.map(profile => [profile.id, profile]));
+      statusEl.textContent = `${applications.length} application(s) awaiting review.`;
+      listEl.innerHTML = applications.map(application => {
+        const profile = profiles.get(application.user_id) || {};
+        const address = application.address || {};
+        const applicant = profile.full_name || application.support_email || application.user_id;
+        return `<article class="card application-panel">
+          <h2>${escapeHTML(application.store_name)}</h2>
+          <p><strong>Applicant:</strong> ${escapeHTML(applicant)}</p>
+          <p><strong>Email:</strong> ${escapeHTML(application.support_email || '—')} · <strong>Phone:</strong> ${escapeHTML(application.contact_phone || profile.phone || '—')}</p>
+          <p><strong>Description:</strong> ${escapeHTML(application.description)}</p>
+          <p><strong>Business address:</strong> ${escapeHTML(address.store_address || [address.city, address.state, address.country].filter(Boolean).join(', ') || '—')}</p>
+          ${application.application_note ? `<p><strong>Additional details:</strong> ${escapeHTML(application.application_note)}</p>` : ''}
+          <p><strong>Applied:</strong> ${escapeHTML(new Date(application.applied_at).toLocaleString())}</p>
+          <div class="flex gap-2">
+            <button class="btn btn-primary" data-review="${escapeHTML(application.user_id)}" data-approve="true">Approve seller</button>
+            <button class="btn btn-secondary" data-review="${escapeHTML(application.user_id)}" data-approve="false">Reject</button>
+          </div>
+        </article>`;
+      }).join('') || '<p class="card application-panel">No pending seller applications.</p>';
     }
 
-    function verify(id) {
-      OSM.updateUser(id, { verified: true });
-      OSM.toast('User verified – they can now login');
-      renderUsers();
+    async function loadUsers(query = '') {
+      try {
+        const users = await OneSpeedBackend.listAdminUsers(query);
+        userStatus.textContent = `${users.length} matching account(s). Email addresses are returned only by the administrator RPC.`;
+        usersBody.innerHTML = users.map(user => `
+          <tr>
+            <td>${escapeHTML(user.full_name || '—')}<br><small>${escapeHTML(user.phone || '')}</small></td>
+            <td>${escapeHTML(user.email || '—')}</td>
+            <td>${escapeHTML(user.role)}</td>
+            <td>${escapeHTML(user.seller_status.replace('_',' '))}</td>
+            <td><span class="status status-${user.is_active ? 'approved' : 'rejected'}">${user.is_active ? 'Active' : 'Suspended'}</span></td>
+            <td>${escapeHTML(new Date(user.created_at).toLocaleDateString())}</td>
+            <td>${user.role === 'admin' ? 'Protected administrator' : `<button class="btn ${user.is_active ? 'btn-accent' : 'btn-primary'} btn-sm" data-account="${escapeHTML(user.id)}" data-active="${!user.is_active}">${user.is_active ? 'Suspend' : 'Reactivate'}</button>`}</td>
+          </tr>`).join('') || '<tr><td colspan="7">No matching accounts.</td></tr>';
+      } catch (error) { userStatus.textContent = error.message || 'Could not load accounts.'; }
     }
 
-    function revoke(id) {
-      if (!confirm('Revoke verification? User will be unable to login until re-approved.')) return;
-      OSM.updateUser(id, { verified: false });
-      OSM.toast('Verification revoked');
-      renderUsers();
-    }
+    listEl.addEventListener('click', async event => {
+      const button = event.target.closest('[data-review]');
+      if (!button) return;
+      const approved = button.dataset.approve === 'true';
+      const note = approved ? '' : prompt('Reason for rejection (optional):') || '';
+      button.disabled = true;
+      try {
+        await OneSpeedBackend.adminReviewSellerApplication(button.dataset.review, approved, note.trim());
+        statusEl.textContent = approved ? 'Seller approved.' : 'Application rejected. The customer account remains active.';
+        await loadApplications();
+      } catch (error) {
+        statusEl.textContent = error.message || 'Could not review this application.';
+        button.disabled = false;
+      }
+    });
 
-    renderUsers();
+    let userSearchTimer;
+    document.getElementById('user-search').addEventListener('input', event => {
+      clearTimeout(userSearchTimer);
+      userSearchTimer = setTimeout(() => loadUsers(event.target.value), 250);
+    });
+    usersBody.addEventListener('click', async event => {
+      const button = event.target.closest('[data-account]');
+      if (!button) return;
+      const active = button.dataset.active === 'true';
+      const note = prompt(active ? 'Reason for reactivating this account (optional):' : 'Reason for suspending this account (required):') || '';
+      if (!active && !note.trim()) return;
+      button.disabled = true;
+      try {
+        await OneSpeedBackend.setAdminUserActive(button.dataset.account, active, note.trim());
+        await loadUsers(document.getElementById('user-search').value);
+      } catch (error) { userStatus.textContent = error.message || 'Could not update account.'; button.disabled = false; }
+    });
+
+    OneSpeedAdmin.ready.then(admin => {
+      if (!admin) return;
+      loadApplications().catch(error => {
+        statusEl.textContent = error.message || 'Could not load seller applications.';
+      });
+      loadUsers();
+    });
   </script>
 </body>
 </html>

@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Customer support – OneSpeed Marketplace</title>
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <header class="header" id="site-header"></header>
+  <main class="container support-page">
+    <h1 class="section-title">Customer support</h1>
+    <p class="page-intro">Send a request to the OneSpeed support team and follow replies here.</p>
+    <section class="card page-panel">
+      <h2>Open a support request</h2>
+      <p id="support-state" role="status">Loading your support history…</p>
+      <form id="support-form" class="page-form" hidden>
+        <label>Related order (optional)
+          <select class="form-control" name="orderId"><option value="">Not order-related</option></select>
+        </label>
+        <label>Subject<input class="form-control" name="subject" required minlength="4" maxlength="160"></label>
+        <label>How can we help?<textarea class="form-control" name="message" required minlength="10" maxlength="5000" rows="5"></textarea></label>
+        <button class="btn btn-primary" type="submit">Submit request</button>
+      </form>
+    </section>
+    <section class="page-section">
+      <h2>Your requests</h2>
+      <div id="support-list" class="support-list"></div>
+    </section>
+  </main>
+  <footer class="footer" id="site-footer"></footer>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="js/supabase-config.js"></script>
+  <script src="js/supabase.js"></script>
+  <script src="js/data.js"></script>
+  <script src="js/app.js"></script>
+  <script>
+    const state = document.getElementById('support-state');
+    const form = document.getElementById('support-form');
+    const list = document.getElementById('support-list');
+    const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
+
+    async function loadSupport() {
+      if (!OneSpeedBackend.configured()) throw new Error('Support requests require Supabase and the marketplace operations migration.');
+      const user = await OneSpeedBackend.currentUser();
+      if (!user) {
+        location.href = 'login.html?redirect=support.html';
+        return;
+      }
+      const [orders, tickets] = await Promise.all([
+        OneSpeedBackend.listCustomerOrders(user.id),
+        OneSpeedBackend.listSupportTickets()
+      ]);
+      const orderSelect = form.elements.orderId;
+      orderSelect.innerHTML = '<option value="">Not order-related</option>' + orders.map(order =>
+        `<option value="${esc(order.id)}">${esc(order.order_number)} · ${esc(order.status)}</option>`).join('');
+      form.hidden = false;
+      state.textContent = `${tickets.length} support request${tickets.length === 1 ? '' : 's'}.`;
+      list.innerHTML = tickets.map(ticket => `
+        <article class="card support-card">
+          <div class="flex justify-between align-center support-heading">
+            <h3>${esc(ticket.subject)}</h3><span class="status status-${ticket.status === 'resolved' || ticket.status === 'closed' ? 'approved' : 'pending'}">${esc(ticket.status.replace('_',' '))}</span>
+          </div>
+          <p>${esc(ticket.message)}</p>
+          ${ticket.order_id ? `<p class="muted">Order: ${esc(orders.find(order => order.id === ticket.order_id)?.order_number || '—')}</p>` : ''}
+          ${ticket.admin_reply ? `<div class="support-reply"><strong>OneSpeed support</strong><p>${esc(ticket.admin_reply)}</p></div>` : '<p class="muted">Waiting for a support response.</p>'}
+          <time datetime="${esc(ticket.updated_at)}">${esc(new Date(ticket.updated_at).toLocaleString())}</time>
+        </article>`).join('') || '<p class="card page-state">No support requests yet.</p>';
+    }
+
+    document.addEventListener('DOMContentLoaded', () => loadSupport().catch(error => {
+      state.textContent = error.message || 'Could not load support.';
+    }));
+    form.addEventListener('submit', async event => {
+      event.preventDefault();
+      const button = event.submitter;
+      button.disabled = true;
+      try {
+        const values = new FormData(form);
+        await OneSpeedBackend.openSupportTicket({
+          subject: String(values.get('subject')).trim(),
+          message: String(values.get('message')).trim(),
+          orderId: String(values.get('orderId') || '')
+        });
+        form.reset();
+        await loadSupport();
+        state.textContent = 'Your request was submitted.';
+      } catch (error) { state.textContent = error.message || 'Could not submit your request.'; }
+      finally { button.disabled = false; }
+    });
+  </script>
+</body>
+</html>

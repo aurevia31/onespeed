@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Saved addresses – OneSpeed Marketplace</title>
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <header class="header" id="site-header"></header>
+  <main class="container">
+    <h1 class="section-title">Saved delivery addresses</h1>
+    <div id="address-state" class="card address-panel" role="status">Loading addresses…</div>
+    <div class="account-tools-grid" id="address-list"></div>
+    <section class="card address-panel">
+      <h2 id="address-form-title">Add an address</h2>
+      <form id="address-form" class="address-form">
+        <input type="hidden" name="id">
+        <div class="address-fields">
+          <label>Label<input class="form-control" name="label" maxlength="60" value="Home" required></label>
+          <label>Full name<input class="form-control" name="fullName" autocomplete="name" required maxlength="160"></label>
+          <label>Phone<input class="form-control" name="phone" type="tel" autocomplete="tel" required maxlength="40"></label>
+          <label>Country<input class="form-control" name="country" autocomplete="country-name" required></label>
+          <label>State / province<input class="form-control" name="state" autocomplete="address-level1"></label>
+          <label>City<input class="form-control" name="city" autocomplete="address-level2" required></label>
+          <label>Street address<input class="form-control" name="address" autocomplete="street-address" required maxlength="300"></label>
+          <label>Postal code<input class="form-control" name="postalCode" autocomplete="postal-code"></label>
+        </div>
+        <label class="check-label"><input type="checkbox" name="isDefault"> Use as my default address</label>
+        <div class="flex gap-2"><button class="btn btn-primary" type="submit">Save address</button><button class="btn btn-secondary" id="address-reset" type="button">Clear</button></div>
+      </form>
+    </section>
+  </main>
+  <footer class="footer" id="site-footer"></footer>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="js/supabase-config.js"></script>
+  <script src="js/supabase.js"></script>
+  <script src="js/data.js"></script>
+  <script src="js/app.js"></script>
+  <script>
+    const state = document.getElementById('address-state');
+    const form = document.getElementById('address-form');
+    const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
+    let addresses = [];
+
+    async function loadAddresses() {
+      addresses = await OneSpeedBackend.listCustomerAddresses();
+      state.textContent = `${addresses.length} saved address${addresses.length === 1 ? '' : 'es'}. Addresses are visible only to your account.`;
+      document.getElementById('address-list').innerHTML = addresses.map(address => `
+        <article class="card address-panel">
+          <div class="flex justify-between align-center address-heading">
+            <h2>${esc(address.label)} ${address.is_default ? '<span class="status status-approved">Default</span>' : ''}</h2>
+            <div class="flex gap-2">
+              <button class="btn btn-secondary btn-sm" type="button" data-edit="${esc(address.id)}">Edit</button>
+              <button class="btn btn-accent btn-sm" type="button" data-delete="${esc(address.id)}">Delete</button>
+            </div>
+          </div>
+          <p>${esc(address.full_name)} · ${esc(address.phone)}</p>
+          <p>${esc(address.address)}, ${esc([address.city,address.state,address.postal_code,address.country].filter(Boolean).join(', '))}</p>
+        </article>`).join('') || '<p class="card address-panel">No saved addresses yet.</p>';
+    }
+
+    function resetAddressForm() {
+      form.reset();
+      form.elements.id.value = '';
+      form.elements.label.value = 'Home';
+      document.getElementById('address-form-title').textContent = 'Add an address';
+    }
+
+    document.addEventListener('DOMContentLoaded', async () => {
+      try {
+        if (!OneSpeedBackend.configured()) throw new Error('Saved addresses require the configured Supabase backend and marketplace operations migration.');
+        if (!await OneSpeedBackend.currentUser()) {
+          location.href = 'login.html?redirect=addresses.html';
+          return;
+        }
+        await loadAddresses();
+      } catch (error) { state.textContent = error.message || 'Could not load addresses.'; }
+    });
+
+    form.addEventListener('submit', async event => {
+      event.preventDefault();
+      const button = event.submitter;
+      button.disabled = true;
+      try {
+        const values = new FormData(form);
+        await OneSpeedBackend.saveCustomerAddress({
+          id: String(values.get('id') || ''),
+          label: String(values.get('label')),
+          fullName: String(values.get('fullName')),
+          phone: String(values.get('phone')),
+          address: String(values.get('address')),
+          city: String(values.get('city')),
+          state: String(values.get('state') || ''),
+          postalCode: String(values.get('postalCode') || ''),
+          country: String(values.get('country')),
+          isDefault: form.elements.isDefault.checked
+        });
+        resetAddressForm();
+        await loadAddresses();
+        state.textContent = 'Address saved.';
+      } catch (error) { state.textContent = error.message || 'Could not save address.'; }
+      finally { button.disabled = false; }
+    });
+
+    document.getElementById('address-reset').addEventListener('click', resetAddressForm);
+    document.getElementById('address-list').addEventListener('click', async event => {
+      const editId = event.target.closest('[data-edit]')?.dataset.edit;
+      const deleteId = event.target.closest('[data-delete]')?.dataset.delete;
+      if (editId) {
+        const address = addresses.find(item => item.id === editId);
+        if (!address) return;
+        for (const [key, value] of Object.entries({
+          id: address.id, label: address.label, fullName: address.full_name, phone: address.phone,
+          address: address.address, city: address.city, state: address.state,
+          postalCode: address.postal_code, country: address.country
+        })) form.elements[key].value = value || '';
+        form.elements.isDefault.checked = address.is_default;
+        document.getElementById('address-form-title').textContent = 'Edit address';
+        form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+      if (deleteId && confirm('Delete this saved address?')) {
+        try {
+          await OneSpeedBackend.deleteCustomerAddress(deleteId);
+          await loadAddresses();
+          state.textContent = 'Address deleted.';
+        } catch (error) { state.textContent = error.message || 'Could not delete address.'; }
+      }
+    });
+  </script>
+</body>
+</html>

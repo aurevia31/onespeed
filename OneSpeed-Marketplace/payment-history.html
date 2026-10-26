@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Payment history – OneSpeed Marketplace</title>
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <header class="header" id="site-header"></header>
+  <main class="container">
+    <h1 class="section-title">Payment history</h1>
+    <p class="page-intro">Transfer submissions and their actual review status. A submitted receipt is not confirmation that funds were received.</p>
+    <div id="payment-state" class="card page-state" role="status">Loading payment history…</div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Order</th><th>Submitted</th><th>Amount</th><th>Reference</th><th>Review status</th><th>Admin note</th></tr></thead>
+      <tbody id="payment-body"></tbody>
+    </table></div>
+  </main>
+  <footer class="footer" id="site-footer"></footer>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="js/supabase-config.js"></script>
+  <script src="js/supabase.js"></script>
+  <script src="js/data.js"></script>
+  <script src="js/app.js"></script>
+  <script>
+    const state = document.getElementById('payment-state');
+    const body = document.getElementById('payment-body');
+    const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
+    document.addEventListener('DOMContentLoaded', async () => {
+      try {
+        if (!OneSpeedBackend.configured()) throw new Error('Payment history requires the configured Supabase backend.');
+        if (!await OneSpeedBackend.currentUser()) {
+          location.href = 'login.html?redirect=payment-history.html';
+          return;
+        }
+        const submissions = await OneSpeedBackend.listCustomerTransferSubmissions();
+        state.textContent = `${submissions.length} transfer submission${submissions.length === 1 ? '' : 's'}.`;
+        body.innerHTML = submissions.map(item => `
+          <tr>
+            <td>${esc(item.orders?.order_number || item.order_id)}</td>
+            <td>${esc(new Date(item.created_at).toLocaleString())}</td>
+            <td>${esc(item.currency)} ${Number(item.amount).toFixed(2)}</td>
+            <td>${esc(item.bank_reference)}</td>
+            <td><span class="status status-${item.status === 'approved' ? 'approved' : item.status === 'rejected' ? 'rejected' : 'pending'}">${esc(item.status.replace('_',' '))}</span></td>
+            <td>${esc(item.admin_note || '—')}</td>
+          </tr>`).join('') || '<tr><td colspan="6">No transfer submissions yet.</td></tr>';
+      } catch (error) { state.textContent = error.message || 'Could not load payment history.'; }
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Wishlist – OneSpeed Marketplace</title>
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <header class="header" id="site-header"></header>
+  <main class="container">
+    <h1 class="section-title">My wishlist</h1>
+    <p class="page-intro">Products saved to your account. Availability and prices are checked against the current listings.</p>
+    <div id="wishlist-state" class="card page-state" role="status">Loading wishlist…</div>
+    <div id="wishlist-grid" class="product-grid"></div>
+  </main>
+  <footer class="footer" id="site-footer"></footer>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="js/supabase-config.js"></script>
+  <script src="js/supabase.js"></script>
+  <script src="js/data.js"></script>
+  <script src="js/app.js"></script>
+  <script>
+    const state = document.getElementById('wishlist-state');
+    const grid = document.getElementById('wishlist-grid');
+
+    async function loadWishlist() {
+      try {
+        if (!OneSpeedBackend.configured()) throw new Error('Wishlist requires the configured Supabase backend and marketplace operations migration.');
+        if (!await OneSpeedBackend.currentUser()) {
+          location.href = 'login.html?redirect=wishlist.html';
+          return;
+        }
+        const rows = await OneSpeedBackend.listWishlist();
+        const products = rows.map(row => row.products).filter(product => product && product.status === 'active');
+        state.textContent = products.length ? `${products.length} saved product${products.length === 1 ? '' : 's'}.` : 'Your wishlist is empty.';
+        grid.innerHTML = products.map(product => productCardHTML(toStorefrontProduct(product))).join('');
+        grid.querySelectorAll('.product-card').forEach((card, index) => {
+          const remove = document.createElement('button');
+          remove.className = 'btn btn-secondary btn-sm btn-block mt-2';
+          remove.type = 'button';
+          remove.textContent = 'Remove from wishlist';
+          remove.addEventListener('click', async () => {
+            remove.disabled = true;
+            try {
+              await OneSpeedBackend.setWishlisted(products[index].id, false);
+              await loadWishlist();
+            } catch (error) {
+              remove.disabled = false;
+              state.textContent = error.message || 'Could not update your wishlist.';
+            }
+          });
+          card.querySelector('.product-info')?.append(remove);
+        });
+      } catch (error) { state.textContent = error.message || 'Could not load your wishlist.'; }
+    }
+
+    document.addEventListener('DOMContentLoaded', loadWishlist);
+  </script>
+</body>
+</html>

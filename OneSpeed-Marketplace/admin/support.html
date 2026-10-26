@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Support requests – OneSpeed Admin</title>
+  <link rel="stylesheet" href="../css/styles.css">
+  <style>html[data-admin-auth="checking"] body{visibility:hidden}</style>
+  <script>document.documentElement.dataset.adminAuth="checking";</script>
+</head>
+<body>
+  <header class="header"><div class="header-inner">
+    <a href="index.html" class="logo"><img src="../assets/images/onespeed-marketplace-brand.webp" alt="OneSpeed Marketplace Admin" width="180" height="45"></a>
+    <div class="nav-actions"><a href="../index.html" class="btn btn-secondary btn-sm">View store</a></div>
+  </div></header>
+  <div class="admin-layout"><main class="admin-content">
+    <h1 class="section-title">Customer support queue</h1>
+    <p id="support-admin-state" class="page-state card" role="status">Loading requests…</p>
+    <div id="support-admin-list" class="support-list"></div>
+  </main></div>
+  <footer class="footer" id="site-footer"></footer>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="../js/supabase-config.js"></script>
+  <script src="../js/supabase.js"></script>
+  <script src="../js/admin-auth.js"></script>
+  <script src="../js/data.js"></script>
+  <script src="../js/app.js"></script>
+  <script>
+    const state = document.getElementById('support-admin-state');
+    const list = document.getElementById('support-admin-list');
+    const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
+    async function load() {
+      try {
+        const { data, error } = await OneSpeedBackend.client().from('support_tickets')
+          .select('id,customer_id,order_id,subject,message,status,admin_reply,created_at,updated_at')
+          .order('updated_at', { ascending: false }).limit(200);
+        if (error) throw error;
+        state.textContent = `${data.filter(ticket => !['resolved','closed'].includes(ticket.status)).length} open or in-progress request(s).`;
+        list.innerHTML = data.map(ticket => `
+          <article class="card support-card" data-ticket="${esc(ticket.id)}">
+            <div class="flex justify-between align-center support-heading">
+              <h2>${esc(ticket.subject)}</h2><span class="status status-${ticket.status === 'resolved' || ticket.status === 'closed' ? 'approved' : 'pending'}">${esc(ticket.status)}</span>
+            </div>
+            <p><strong>Customer ID:</strong> ${esc(ticket.customer_id)}${ticket.order_id ? ` · <strong>Order:</strong> ${esc(ticket.order_id)}` : ''}</p>
+            <p>${esc(ticket.message)}</p>
+            ${ticket.admin_reply ? `<div class="support-reply"><strong>Previous reply</strong><p>${esc(ticket.admin_reply)}</p></div>` : ''}
+            <p><time datetime="${esc(ticket.created_at)}">${esc(new Date(ticket.created_at).toLocaleString())}</time></p>
+            ${!['resolved','closed'].includes(ticket.status) ? `<form class="admin-support-reply page-form" data-reply="${esc(ticket.id)}">
+              <label>Reply<textarea class="form-control" name="reply" required minlength="1" maxlength="5000">${esc(ticket.admin_reply || '')}</textarea></label>
+              <label>Update status<select class="form-control" name="status"><option value="in_progress">In progress</option><option value="resolved">Resolved</option><option value="closed">Closed</option></select></label>
+              <button class="btn btn-primary" type="submit">Send reply</button>
+            </form>` : ''}
+          </article>`).join('') || '<p class="card page-state">No support requests.</p>';
+      } catch (error) { state.textContent = error.message || 'Could not load support queue.'; }
+    }
+    list.addEventListener('submit', async event => {
+      const form = event.target.closest('[data-reply]');
+      if (!form) return;
+      event.preventDefault();
+      const button = form.querySelector('button');
+      button.disabled = true;
+      try {
+        const values = new FormData(form);
+        await OneSpeedBackend.adminReplySupportTicket(form.dataset.reply, String(values.get('status')), String(values.get('reply')).trim());
+        await load();
+      } catch (error) { state.textContent = error.message || 'Could not send reply.'; button.disabled = false; }
+    });
+    OneSpeedAdmin.ready.then(admin => { if (admin) load(); });
+  </script>
+</body>
+</html>

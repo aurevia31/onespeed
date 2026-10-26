@@ -46,9 +46,7 @@ const OSM = {
       localStorage.setItem('osm_products', JSON.stringify(this.seedProducts));
     }
     if (!localStorage.getItem('osm_users')) {
-      // Default admin
       localStorage.setItem('osm_users', JSON.stringify([
-        { id: 1, email: 'admin@onespeed.market', password: 'admin123', name: 'Platform Admin', role: 'admin', verified: true, createdAt: Date.now() },
         { id: 2, email: 'demo@customer.com', password: 'demo123', name: 'Demo Customer', role: 'customer', verified: true, phone: '+2348012345678', createdAt: Date.now() - 86400000 }
       ]));
     }
@@ -117,18 +115,15 @@ const OSM = {
     }
     user.id = users.length ? Math.max(...users.map(u => u.id)) + 1 : 1;
     user.role = 'customer';
-    user.verified = false; // Admin must approve
+    user.verified = true;
     user.createdAt = Date.now();
     users.push(user);
     this.saveUsers(users);
     return { success: true, user };
   },
   login(email, password) {
-    const user = this.getUsers().find(u => u.email.toLowerCase() === email.toLowerCase() && u.password === password);
+    const user = this.getUsers().find(u => u.role !== 'admin' && u.email.toLowerCase() === email.toLowerCase() && u.password === password);
     if (!user) return { error: 'Invalid email or password' };
-    if (user.role === 'customer' && !user.verified) {
-      return { error: 'Account pending admin verification. Please wait for approval.' };
-    }
     localStorage.setItem('osm_session', JSON.stringify({ id: user.id, email: user.email, name: user.name, role: user.role }));
     return { success: true, user };
   },
@@ -142,8 +137,7 @@ const OSM = {
     return !!this.getSession();
   },
   isAdmin() {
-    const s = this.getSession();
-    return s && s.role === 'admin';
+    return false;
   },
   updateUser(id, updates) {
     const users = this.getUsers();

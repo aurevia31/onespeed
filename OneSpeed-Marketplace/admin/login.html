@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Administrator Login – OneSpeed Marketplace</title>
+  <link rel="stylesheet" href="../css/styles.css">
+</head>
+<body>
+  <header class="header">
+    <div class="header-inner">
+      <a href="../index.html" class="logo"><img src="../assets/images/onespeed-marketplace-brand.webp" alt="OneSpeed Marketplace" width="180" height="45"></a>
+      <div class="nav-actions"><a href="../index.html" class="btn btn-secondary btn-sm">View Store</a></div>
+    </div>
+  </header>
+  <main class="container">
+    <div class="auth-container">
+      <section class="card auth-card">
+        <h1>Administrator Login</h1>
+        <p class="text-center" style="color:var(--text-light);margin:14px 0 20px;">Sign in using the administrator credentials configured for this deployment.</p>
+        <form id="admin-login-form">
+          <div class="form-group">
+            <label for="admin-email">Administrator email</label>
+            <input id="admin-email" class="form-control" name="email" type="email" autocomplete="username" required>
+          </div>
+          <div class="form-group">
+            <label for="admin-password">Password</label>
+            <input id="admin-password" class="form-control" name="password" type="password" autocomplete="current-password" required>
+          </div>
+          <button id="admin-submit" class="btn btn-primary btn-block" type="submit">Sign in</button>
+          <p id="admin-login-status" role="status" aria-live="polite" class="text-center mt-3"></p>
+        </form>
+        <p class="text-center mt-3"><a href="../login.html">Customer sign in</a></p>
+      </section>
+    </div>
+  </main>
+  <footer class="footer" id="site-footer"></footer>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="../js/supabase-config.js"></script>
+  <script src="../js/supabase.js"></script>
+  <script src="../js/data.js"></script>
+  <script src="../js/app.js"></script>
+  <script>
+    const adminForm = document.getElementById('admin-login-form');
+    const adminStatus = document.getElementById('admin-login-status');
+    const adminSubmit = document.getElementById('admin-submit');
+
+    function adminDestination() {
+      const requested = new URLSearchParams(location.search).get('redirect');
+      if (!requested || requested.startsWith('//') || requested.includes('\\')) return 'index.html';
+      try {
+        const destination = new URL(requested, location.href);
+        if (destination.origin !== location.origin
+          || !destination.pathname.startsWith('/admin/')
+          || destination.pathname === '/admin/login.html') return 'index.html';
+        return `${destination.pathname.slice('/admin/'.length)}${destination.search}${destination.hash}`;
+      } catch {
+        return 'index.html';
+      }
+    }
+
+    adminForm.addEventListener('submit', async event => {
+      event.preventDefault();
+      adminSubmit.disabled = true;
+      adminStatus.textContent = '';
+      const values = new FormData(adminForm);
+      try {
+        const response = await fetch('/api/admin/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({
+            email: String(values.get('email')).trim(),
+            password: String(values.get('password'))
+          })
+        });
+        const payload = await response.json();
+        if (!response.ok) {
+          adminStatus.textContent = response.status === 503 || response.status === 502
+            ? 'Administrator sign-in is temporarily unavailable. Check the deployment configuration.'
+            : 'Unable to sign in. Check your credentials and try again.';
+          return;
+        }
+        if (!OneSpeedBackend.configured()) throw new Error('Authentication is unavailable.');
+        const { error } = await OneSpeedBackend.client().auth.setSession({
+          access_token: payload.access_token,
+          refresh_token: payload.refresh_token
+        });
+        if (error) throw error;
+        const profile = await OneSpeedBackend.profile();
+        if (!profile || profile.role !== 'admin' || !profile.is_active) {
+          await OneSpeedBackend.signOut();
+          adminStatus.textContent = 'Unable to sign in. Check your credentials and try again.';
+          return;
+        }
+        location.replace(adminDestination());
+      } catch {
+        adminStatus.textContent = 'Administrator sign-in is temporarily unavailable.';
+      } finally {
+        adminSubmit.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>

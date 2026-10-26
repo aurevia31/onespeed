@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Seller payouts – OneSpeed Admin</title>
+  <link rel="stylesheet" href="../css/styles.css">
+  <style>html[data-admin-auth="checking"] body{visibility:hidden}</style>
+  <script>document.documentElement.dataset.adminAuth="checking";</script>
+</head>
+<body>
+  <header class="header"><div class="header-inner">
+    <a href="index.html" class="logo"><img src="../assets/images/onespeed-marketplace-brand.webp" alt="OneSpeed Marketplace Admin" width="180" height="45"></a>
+    <div class="nav-actions"><a href="../index.html" class="btn btn-secondary btn-sm">View store</a></div>
+  </div></header>
+  <div class="admin-layout"><main class="admin-content">
+    <h1 class="section-title">Seller payout ledger</h1>
+    <p class="page-intro">The ledger is created from paid order items. Mark as paid only after the transfer is completed and its reference is confirmed.</p>
+    <p id="payout-state" class="page-state card" role="status">Loading payout records…</p>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Seller ID</th><th>Order item</th><th>Gross</th><th>Commission</th><th>Net</th><th>Status</th><th>Transfer reference</th><th>Actions</th></tr></thead>
+      <tbody id="payout-body"></tbody>
+    </table></div>
+  </main></div>
+  <footer class="footer" id="site-footer"></footer>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="../js/supabase-config.js"></script>
+  <script src="../js/supabase.js"></script>
+  <script src="../js/admin-auth.js"></script>
+  <script src="../js/data.js"></script>
+  <script src="../js/app.js"></script>
+  <script>
+    const state = document.getElementById('payout-state');
+    const body = document.getElementById('payout-body');
+    const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
+    async function load() {
+      try {
+        const payouts = await OneSpeedBackend.listSellerPayouts();
+        state.textContent = `${payouts.length} seller payout record(s). Payout records are not evidence that money was sent.`;
+        body.innerHTML = payouts.map(payout => `
+          <tr>
+            <td><code>${esc(payout.seller_id)}</code></td>
+            <td><code>${esc(payout.order_item_id)}</code></td>
+            <td>${Number(payout.gross_amount).toFixed(2)}</td>
+            <td>${Number(payout.commission_amount).toFixed(2)}</td>
+            <td>${Number(payout.net_amount).toFixed(2)}</td>
+            <td><span class="status status-${payout.status === 'paid' ? 'approved' : payout.status === 'reversed' ? 'rejected' : 'pending'}">${esc(payout.status)}</span></td>
+            <td>${esc(payout.payout_reference || '—')}</td>
+            <td class="payout-actions">
+              ${payout.status === 'pending' ? `<button class="btn btn-secondary btn-sm" data-action="approve" data-id="${esc(payout.id)}">Approve</button><button class="btn btn-accent btn-sm" data-action="reverse" data-id="${esc(payout.id)}">Reverse</button>` : ''}
+              ${payout.status === 'approved' ? `<button class="btn btn-primary btn-sm" data-action="record_paid" data-id="${esc(payout.id)}">Record completed transfer</button>` : ''}
+            </td>
+          </tr>`).join('') || '<tr><td colspan="8">No payout ledger records yet. Paid orders create seller records automatically after the operations migration.</td></tr>';
+      } catch (error) { state.textContent = error.message || 'Could not load payouts.'; }
+    }
+    body.addEventListener('click', async event => {
+      const button = event.target.closest('[data-action]');
+      if (!button) return;
+      const { action, id } = button.dataset;
+      let reference = '';
+      let note = '';
+      if (action === 'record_paid') {
+        reference = prompt('Enter the confirmed bank transfer reference. Do not mark paid before the transfer is completed.') || '';
+        if (reference.trim().length < 3) return;
+      } else {
+        note = prompt(action === 'reverse' ? 'Reason for reversing this payout:' : 'Approval note (optional):') || '';
+        if (action === 'reverse' && !note.trim()) return;
+      }
+      button.disabled = true;
+      try {
+        await OneSpeedBackend.adminReviewSellerPayout(id, action, reference.trim(), note.trim());
+        await load();
+      } catch (error) { state.textContent = error.message || 'Could not update payout.'; button.disabled = false; }
+    });
+    OneSpeedAdmin.ready.then(admin => { if (admin) load(); });
+  </script>
+</body>
+</html>

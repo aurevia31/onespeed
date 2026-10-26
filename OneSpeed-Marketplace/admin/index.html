@@ -5,6 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Admin Dashboard – OneSpeed Market</title>
   <link rel="stylesheet" href="../css/styles.css">
+  <style>html[data-admin-auth="checking"] body{visibility:hidden}</style>
+  <script>document.documentElement.dataset.adminAuth = 'checking';</script>
 </head>
 <body>
   <header class="header">
@@ -12,7 +14,7 @@
       <a href="../index.html" class="logo"><img src="../assets/images/onespeed-marketplace-brand.webp" alt="OneSpeed Marketplace Admin" width="180" height="45"></a>
       <div class="nav-actions">
         <a href="../index.html" class="btn btn-secondary btn-sm">View Store</a>
-        <button class="btn btn-primary btn-sm" onclick="logout()">Logout</button>
+        <button class="btn btn-primary btn-sm" data-admin-logout onclick="adminLogout()">Logout</button>
       </div>
     </div>
   </header>
@@ -35,8 +37,12 @@
           <div id="recent-orders"></div>
         </div>
         <div class="card" style="padding:20px;">
-          <h3 style="margin-bottom:12px;">Pending Verifications</h3>
+          <h3 style="margin-bottom:12px;">Operational queue</h3>
           <div id="pending-users"></div>
+        </div>
+        <div class="card" style="padding:20px;">
+          <h3 style="margin-bottom:12px;">Recent audited activity</h3>
+          <div id="recent-activity"></div>
         </div>
       </div>
     </main>
@@ -45,6 +51,7 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="../js/supabase-config.js"></script>
   <script src="../js/supabase.js"></script>
+  <script src="../js/admin-auth.js"></script>
   <script src="../js/data.js"></script>
   <script>
     async function initializeDashboard() {
@@ -53,7 +60,7 @@
           const user = await OneSpeedBackend.currentUser();
           const profile = user ? await OneSpeedBackend.profile() : null;
           if (!profile || profile.role !== 'admin' || !profile.is_active) {
-            location.href = '../login.html?redirect=admin/index.html';
+            location.href = '/admin/login.html?redirect=%2Fadmin%2Findex.html';
             return;
           }
           await renderSupabaseDashboard();
@@ -63,14 +70,10 @@
         return;
       }
 
-      if (!OSM.isAdmin()) {
-        location.href = '../login.html';
-        return;
-      }
-      renderDemoDashboard();
+      location.href = '/admin/login.html';
     }
 
-    function renderStats({ products, orders, pendingOrders, revenue, pendingUsers, revenueCurrency }) {
+    function renderStats({ products, orders, pendingOrders, revenue, pendingUsers, revenueCurrency, customers, sellers, productReviews, pendingTransfers, openSupport }) {
       document.getElementById('stats').innerHTML = `
         <div class="card" style="padding:20px;text-align:center;">
           <div style="font-size:1.8rem;font-weight:800;color:var(--primary-dark);">${products}</div>
@@ -85,13 +88,18 @@
           <div style="font-size:0.9rem;color:var(--text-light);">Pending Orders</div>
         </div>
         <div class="card" style="padding:20px;text-align:center;">
-          <div style="font-size:1.8rem;font-weight:800;color:#28a745;">${escapeHTML(revenue === null ? '—' : revenueCurrency ? `${revenueCurrency} ${revenue.toFixed(2)}` : OSM.formatPrice(revenue))}</div>
-          <div style="font-size:0.9rem;color:var(--text-light);">Revenue (approx)</div>
+          <div style="font-size:1.8rem;font-weight:800;color:#28a745;">${escapeHTML(revenue === null || revenue === undefined ? '—' : revenueCurrency ? `${revenueCurrency} ${revenue.toFixed(2)}` : OSM.formatPrice(revenue))}</div>
+          <div style="font-size:0.9rem;color:var(--text-light);">Paid order total (latest 100)</div>
         </div>
         <div class="card" style="padding:20px;text-align:center;">
           <div style="font-size:1.8rem;font-weight:800;color:#fd7e14;">${pendingUsers}</div>
-          <div style="font-size:0.9rem;color:var(--text-light);">${OneSpeedBackend.configured() ? 'Pending Seller Applications' : 'Users Awaiting Verify'}</div>
+          <div style="font-size:0.9rem;color:var(--text-light);">Pending Seller Applications</div>
         </div>
+        <div class="card" style="padding:20px;text-align:center;"><div style="font-size:1.8rem;font-weight:800;color:var(--secondary);">${customers ?? '—'}</div><div style="font-size:.9rem;color:var(--text-light);">Customers</div></div>
+        <div class="card" style="padding:20px;text-align:center;"><div style="font-size:1.8rem;font-weight:800;color:var(--secondary);">${sellers ?? '—'}</div><div style="font-size:.9rem;color:var(--text-light);">Approved sellers</div></div>
+        <div class="card" style="padding:20px;text-align:center;"><div style="font-size:1.8rem;font-weight:800;color:var(--secondary);">${productReviews ?? '—'}</div><div style="font-size:.9rem;color:var(--text-light);">Reviews awaiting moderation</div></div>
+        <div class="card" style="padding:20px;text-align:center;"><div style="font-size:1.8rem;font-weight:800;color:var(--secondary);">${pendingTransfers ?? '—'}</div><div style="font-size:.9rem;color:var(--text-light);">Bank transfers to review</div></div>
+        <div class="card" style="padding:20px;text-align:center;"><div style="font-size:1.8rem;font-weight:800;color:var(--secondary);">${openSupport ?? '—'}</div><div style="font-size:.9rem;color:var(--text-light);">Open support requests</div></div>
       `;
     }
 
@@ -125,16 +133,21 @@
 
     async function renderSupabaseDashboard() {
       const db = OneSpeedBackend.client();
-      const [productsResult, ordersResult, pendingOrdersResult, pendingSellersResult] = await Promise.all([
+      const [productsResult, ordersResult, pendingOrdersResult, pendingSellersResult, customersResult, sellersResult, pendingReviewsResult, pendingTransfersResult, supportResult, activityResult] = await Promise.all([
         db.from('products').select('id', { count: 'exact', head: true }),
         db.from('orders').select('id,order_number,status,total,currency,created_at,shipping_address', { count: 'exact' }).order('created_at', { ascending: false }).limit(100),
         db.from('orders').select('id', { count: 'exact', head: true }).in('status', ['pending_payment','payment_review']),
-        db.from('profiles').select('id', { count: 'exact', head: true }).eq('seller_status', 'pending')
+        db.from('profiles').select('id', { count: 'exact', head: true }).eq('seller_status', 'pending'),
+        db.from('profiles').select('id', { count: 'exact', head: true }).eq('role', 'customer').eq('is_active', true),
+        db.from('profiles').select('id', { count: 'exact', head: true }).eq('role', 'seller').eq('seller_status', 'approved').eq('is_active', true),
+        db.from('reviews').select('id', { count: 'exact', head: true }).eq('is_published', false),
+        db.from('bank_transfer_submissions').select('id', { count: 'exact', head: true }).eq('status', 'pending_review'),
+        db.from('support_tickets').select('id', { count: 'exact', head: true }).in('status', ['open','in_progress']),
+        db.from('audit_logs').select('id,action,entity_type,created_at').order('created_at', { ascending: false }).limit(8)
       ]);
-      if (productsResult.error) throw productsResult.error;
-      if (ordersResult.error) throw ordersResult.error;
-      if (pendingOrdersResult.error) throw pendingOrdersResult.error;
-      if (pendingSellersResult.error) throw pendingSellersResult.error;
+      for (const result of [productsResult, ordersResult, pendingOrdersResult, pendingSellersResult, customersResult, sellersResult, pendingReviewsResult, pendingTransfersResult, supportResult, activityResult]) {
+        if (result.error) throw result.error;
+      }
 
       const orders = ordersResult.data;
       const revenueOrders = orders.filter(order => ['paid','processing','shipped','delivered'].includes(order.status));
@@ -150,7 +163,12 @@
         pendingOrders: pendingOrdersResult.count || 0,
         revenue,
         pendingUsers: pendingSellersResult.count || 0,
-        revenueCurrency
+        revenueCurrency,
+        customers: customersResult.count || 0,
+        sellers: sellersResult.count || 0,
+        productReviews: pendingReviewsResult.count || 0,
+        pendingTransfers: pendingTransfersResult.count || 0,
+        openSupport: supportResult.count || 0
       });
       document.getElementById('recent-orders').innerHTML = orders.slice(0, 5).map(order => `
         <div class="flex justify-between align-center" style="padding:8px 0;border-bottom:1px solid #eee;">
@@ -159,8 +177,20 @@
         </div>
       `).join('') || '<p style="color:#888;">No orders yet</p>';
       document.getElementById('pending-users').innerHTML = `
-        <p>${pendingSellersResult.count || 0} seller application(s) are awaiting review.</p>
+        <p>${pendingSellersResult.count || 0} seller application(s) await review.</p>
+        <p>${pendingReviewsResult.count || 0} product review(s) await moderation.</p>
+        <p>${pendingTransfersResult.count || 0} bank transfer(s) await verification.</p>
+        <p>${supportResult.count || 0} support request(s) need a response.</p>
+        <div class="flex gap-2" style="flex-wrap:wrap;margin-top:12px;">
+          <a class="btn btn-secondary btn-sm" href="users.html">Users</a>
+          <a class="btn btn-secondary btn-sm" href="reviews.html">Reviews</a>
+          <a class="btn btn-secondary btn-sm" href="bank-transfers.html">Transfers</a>
+          <a class="btn btn-secondary btn-sm" href="support.html">Support</a>
+        </div>
       `;
+      document.getElementById('recent-activity').innerHTML = activityResult.data.map(item => `
+        <div class="audit-entry"><strong>${escapeHTML(item.action.replaceAll('_',' '))}</strong><span>${escapeHTML(item.entity_type)}</span><time datetime="${escapeHTML(item.created_at)}">${escapeHTML(new Date(item.created_at).toLocaleString())}</time></div>
+      `).join('') || '<p>No audited actions recorded yet.</p>';
     }
 
     function showDashboardError(message) {

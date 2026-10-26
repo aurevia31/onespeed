@@ -20,7 +20,7 @@
         <div class="hero-trust">
           <div class="trust-item"><span class="trust-mark" aria-hidden="true"></span> Secure checkout</div>
           <div class="trust-item"><span class="trust-mark" aria-hidden="true"></span> Order tracking</div>
-          <div class="trust-item"><span class="trust-mark" aria-hidden="true"></span> Account approval</div>
+          <div class="trust-item"><span class="trust-mark" aria-hidden="true"></span> Shop as a customer</div>
           <div class="trust-item"><span class="trust-mark" aria-hidden="true"></span> Customer support</div>
         </div>
 
@@ -78,7 +78,32 @@
       <button class="btn btn-secondary btn-sm cat-btn" data-cat="Pets">Pets</button>
     </div>
 
-    <h2 class="section-title" id="products">Top Picks for You</h2>
+    <section class="catalog-toolbar" aria-label="Product filters">
+      <label>Sort by
+        <select class="form-control" id="sort-products">
+          <option value="recent">Recently added</option>
+          <option value="price-asc">Price: low to high</option>
+          <option value="price-desc">Price: high to low</option>
+          <option value="name">Name: A to Z</option>
+        </select>
+      </label>
+      <label>Price currency
+        <select class="form-control" id="price-currency" aria-describedby="price-filter-help">
+          <option value="">All currencies</option>
+        </select>
+      </label>
+      <label>Minimum price
+        <input class="form-control" id="price-min" type="number" min="0" step="0.01" inputmode="decimal" placeholder="No minimum">
+      </label>
+      <label>Maximum price
+        <input class="form-control" id="price-max" type="number" min="0" step="0.01" inputmode="decimal" placeholder="No maximum">
+      </label>
+      <label class="stock-filter"><input id="in-stock-only" type="checkbox"> In stock only</label>
+      <p id="price-filter-help" class="catalog-filter-help" role="status" aria-live="polite"></p>
+    </section>
+
+    <h2 class="section-title" id="products">Marketplace Products</h2>
+    <p id="catalog-result-count" class="page-intro" role="status" aria-live="polite"></p>
     <div class="product-grid" id="product-grid">
       <div class="spinner"></div>
     </div>
@@ -100,6 +125,12 @@
     let filtered = [];
     let page = 0;
     const perPage = 12;
+    const catalogPageSize = 60;
+    let supabaseCatalog = false;
+    let catalogOffset = 0;
+    let catalogTotal = 0;
+    let catalogHasMore = false;
+    let catalogRequest = 0;
 
     function renderProducts(reset = false) {
       if (reset) {
@@ -118,18 +149,111 @@
         grid.insertAdjacentHTML('beforeend', productCardHTML(p));
       });
       page++;
-      const hasMore = page * perPage < filtered.length;
+      const hasMore = page * perPage < filtered.length || (supabaseCatalog && catalogHasMore);
       document.getElementById('load-more-wrap').style.display = hasMore ? 'block' : 'none';
+    }
+
+    async function loadCatalog(reset = false) {
+      if (!supabaseCatalog) return applyFilters();
+      if (reset) {
+        catalogOffset = 0;
+        catalogHasMore = false;
+        allProducts = [];
+        filtered = [];
+      }
+      const requestId = ++catalogRequest;
+      const minPrice = document.getElementById('price-min').value;
+      const maxPrice = document.getElementById('price-max').value;
+      const selectedCurrency = document.getElementById('price-currency').value;
+      const sort = document.getElementById('sort-products').value;
+      const hasPriceFilter = minPrice !== '' || maxPrice !== '';
+      const sortByPrice = sort === 'price-asc' || sort === 'price-desc';
+      const invalidPriceRange = minPrice !== '' && maxPrice !== '' && Number(minPrice) > Number(maxPrice);
+      const currencyRequired = (hasPriceFilter || sortByPrice) && !selectedCurrency;
+      document.getElementById('price-filter-help').textContent = invalidPriceRange
+        ? 'Minimum price must not exceed maximum price.'
+        : currencyRequired ? 'Choose a price currency to use price filters or sorting.' : '';
+      const button = document.getElementById('load-more');
+      if (invalidPriceRange || currencyRequired) {
+        catalogTotal = 0;
+        catalogHasMore = false;
+        filtered = [];
+        document.getElementById('catalog-result-count').textContent = '0 matching products';
+        renderProducts(true);
+        document.getElementById('load-more-wrap').style.display = 'none';
+        button.disabled = false;
+        return;
+      }
+      button.disabled = true;
+      try {
+        const result = await OneSpeedBackend.listProducts({
+          query: getQueryParam('q') || '',
+          category: getQueryParam('cat') || '',
+          currency: selectedCurrency || undefined,
+          minPrice: minPrice || undefined,
+          maxPrice: maxPrice || undefined,
+          inStockOnly: document.getElementById('in-stock-only').checked,
+          sort,
+          limit: catalogPageSize,
+          offset: catalogOffset
+        });
+        if (requestId !== catalogRequest) return;
+        const products = result.data.map(toStorefrontProduct);
+        catalogTotal = result.count;
+        catalogHasMore = catalogOffset + products.length < catalogTotal;
+        catalogOffset += products.length;
+        allProducts = reset ? products : allProducts.concat(products);
+        filtered = allProducts.slice();
+        document.getElementById('catalog-result-count').textContent = `${catalogTotal} matching product${catalogTotal === 1 ? '' : 's'}`;
+        OSM.saveProducts(allProducts);
+        renderProducts(reset);
+      } catch (error) {
+        if (requestId !== catalogRequest) return;
+        const grid = document.getElementById('product-grid');
+        grid.innerHTML = `<p class="page-state" role="alert">Could not load marketplace products: ${escapeHTML(error.message || 'Please try again.')}</p>`;
+        document.getElementById('load-more-wrap').style.display = 'none';
+      } finally {
+        if (requestId === catalogRequest) button.disabled = false;
+      }
+    }
+
+    function refreshCatalog() {
+      if (supabaseCatalog) void loadCatalog(true);
+      else applyFilters();
     }
 
     function applyFilters() {
       const q = (getQueryParam('q') || '').toLowerCase();
       const cat = getQueryParam('cat') || '';
+      const minPrice = document.getElementById('price-min').value;
+      const maxPrice = document.getElementById('price-max').value;
+      const selectedCurrency = document.getElementById('price-currency').value;
+      const sort = document.getElementById('sort-products').value;
+      const inStockOnly = document.getElementById('in-stock-only').checked;
+      const hasPriceFilter = minPrice !== '' || maxPrice !== '';
+      const sortByPrice = sort === 'price-asc' || sort === 'price-desc';
+      const currencyRequired = (hasPriceFilter || sortByPrice) && !selectedCurrency;
+      const invalidPriceRange = minPrice !== '' && maxPrice !== '' && Number(minPrice) > Number(maxPrice);
+      document.getElementById('price-filter-help').textContent = invalidPriceRange
+        ? 'Minimum price must not exceed maximum price.'
+        : currencyRequired ? 'Choose a price currency to use price filters or sorting.' : '';
       filtered = allProducts.filter(p => {
         const matchQ = !q || p.title.toLowerCase().includes(q) || (p.description || '').toLowerCase().includes(q) || p.category.toLowerCase().includes(q);
         const matchCat = !cat || p.category === cat;
-        return matchQ && matchCat;
+        const productCurrency = String(p.currency || OSM.getCurrency()).trim();
+        const matchCurrency = !(hasPriceFilter || sortByPrice) || !selectedCurrency || productCurrency === selectedCurrency;
+        const price = Number(p.price);
+        const matchPrice = invalidPriceRange ? false : !hasPriceFilter || currencyRequired ||
+          ((minPrice === '' || price >= Number(minPrice)) && (maxPrice === '' || price <= Number(maxPrice)));
+        const matchStock = !inStockOnly || Number(p.stock) > 0;
+        return matchQ && matchCat && matchCurrency && matchPrice && matchStock;
       });
+      if (sort === 'price-asc' && selectedCurrency) filtered.sort((a, b) => Number(a.price) - Number(b.price));
+      if (sort === 'price-desc' && selectedCurrency) filtered.sort((a, b) => Number(b.price) - Number(a.price));
+      if (sort === 'name') filtered.sort((a, b) => a.title.localeCompare(b.title));
+      if (sort === 'recent' || (sortByPrice && !selectedCurrency)) {
+        filtered.sort((a, b) => new Date(b.created_at || b.createdAt || 0) - new Date(a.created_at || a.createdAt || 0));
+      }
       // Update active category button
       document.querySelectorAll('.cat-btn').forEach(btn => {
         btn.classList.toggle('active', (btn.dataset.cat || '') === cat);
@@ -138,16 +262,27 @@
     }
 
     document.addEventListener('DOMContentLoaded', async () => {
-      allProducts = OSM.getProducts().sort((a, b) => (b.sales || 0) - (a.sales || 0));
+      allProducts = OSM.getProducts();
       if (window.OneSpeedBackend?.configured()) {
         try {
-          const [products, user] = await Promise.all([
-            OneSpeedBackend.listProducts({ limit: 1000 }),
+          const [catalog, user] = await Promise.all([
+            OneSpeedBackend.listProducts({
+              query: getQueryParam('q') || '',
+              category: getQueryParam('cat') || '',
+              limit: catalogPageSize
+            }),
             OneSpeedBackend.currentUser()
           ]);
           window.OneSpeedAuthenticated = Boolean(user);
-          allProducts = products.map(toStorefrontProduct);
+          supabaseCatalog = true;
+          allProducts = catalog.data.map(toStorefrontProduct);
+          filtered = allProducts.slice();
+          catalogTotal = catalog.count;
+          catalogOffset = allProducts.length;
+          catalogHasMore = catalogOffset < catalogTotal;
           OSM.saveProducts(allProducts);
+          document.getElementById('catalog-result-count').textContent =
+            `${catalogTotal} matching product${catalogTotal === 1 ? '' : 's'}`;
         } catch (error) {
           document.getElementById('product-grid').innerHTML = `
             <p class="text-center" style="grid-column:1/-1;padding:40px;">
@@ -156,8 +291,17 @@
           return;
         }
       }
-      allProducts.sort((a, b) => (b.sales || 0) - (a.sales || 0));
-      applyFilters();
+      const currencies = [...new Set(allProducts.map(product => String(product.currency || OSM.getCurrency()).trim()))].sort();
+      const currencySelect = document.getElementById('price-currency');
+      currencies.forEach(currency => {
+        const option = document.createElement('option');
+        option.value = currency;
+        option.textContent = currency;
+        currencySelect.append(option);
+      });
+      if (currencies.length === 1 && !supabaseCatalog) currencySelect.value = currencies[0];
+      if (supabaseCatalog) renderProducts(true);
+      else applyFilters();
 
       document.querySelectorAll('.category-item').forEach(item => {
         item.setAttribute('role', 'button');
@@ -166,7 +310,7 @@
           const url = new URL(location);
           url.searchParams.set('cat', item.dataset.cat);
           history.replaceState(null, '', url);
-          applyFilters();
+          refreshCatalog();
           document.getElementById('products').scrollIntoView({ behavior: 'smooth', block: 'start' });
         };
         item.addEventListener('click', selectCategory);
@@ -181,11 +325,19 @@
           else url.searchParams.delete('cat');
           // Keep search query if any
           history.replaceState(null, '', url);
-          applyFilters();
+          refreshCatalog();
         });
       });
 
-      document.getElementById('load-more')?.addEventListener('click', () => renderProducts(false));
+      ['sort-products', 'price-currency', 'price-min', 'price-max', 'in-stock-only'].forEach(id => {
+        document.getElementById(id).addEventListener('input', refreshCatalog);
+        document.getElementById(id).addEventListener('change', refreshCatalog);
+      });
+      document.getElementById('load-more')?.addEventListener('click', () => {
+        if (page * perPage < filtered.length) renderProducts(false);
+        else if (supabaseCatalog && catalogHasMore) void loadCatalog(false);
+        else renderProducts(false);
+      });
     });
   </script>
 </body>

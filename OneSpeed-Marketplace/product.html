@@ -58,6 +58,7 @@
       }
       document.title = p.title + ' – OneSpeed Market';
       const isGuest = !authenticated;
+      const stock = Math.max(0, Number(p.stock) || 0);
 
       content.innerHTML = `
         <div class="product-detail">
@@ -67,10 +68,8 @@
           <div>
             <div class="badge">${escapeHTML(p.category)}</div>
             <h1 style="font-size:1.6rem;margin:12px 0;color:var(--secondary);">${escapeHTML(p.title)}</h1>
-            <div style="display:flex;gap:16px;align-items:center;margin-bottom:8px;">
-              <span><span class="rating-star" aria-hidden="true">★</span> ${p.rating || 4.5} / 5</span>
-              <span style="color:var(--text-light);">${(p.sales || 0).toLocaleString()} sold</span>
-              <span style="color:var(--text-light);">Stock: ${p.stock}</span>
+            <div class="product-detail-meta">
+              <span>${stock > 0 ? `${stock} in stock` : '<span class="status status-rejected">Out of stock</span>'}</span>
             </div>
             ${isGuest 
               ? `<div class="price-big locked-price" style="display:inline-block;">Login to unlock price</div>
@@ -80,13 +79,13 @@
                    <a href="register.html" class="btn btn-secondary">Sign Up Free</a>
                  </div>`
               : `<div class="price-big">${formatProductPrice(p)}</div>
-                 <div class="qty-control">
-                   <button class="btn btn-secondary" onclick="changeQty(-1)">−</button>
-                   <input type="number" id="qty" value="1" min="1" max="${p.stock}" class="form-control">
-                   <button class="btn btn-secondary" onclick="changeQty(1)">+</button>
-                 </div>
-                 <button class="btn btn-primary btn-block" style="padding:16px;font-size:1.1rem;" onclick="addToCart()">Add to Cart</button>
-                 <button class="btn btn-accent btn-block mt-2" onclick="buyNow()">Buy Now</button>`
+                 ${stock > 0 ? `<div class="qty-control">
+                   <button class="btn btn-secondary" aria-label="Decrease quantity" onclick="changeQty(-1)">−</button>
+                   <input type="number" id="qty" value="1" min="1" max="${stock}" class="form-control" aria-label="Quantity">
+                   <button class="btn btn-secondary" aria-label="Increase quantity" onclick="changeQty(1)">+</button>
+                 </div>` : ''}
+                 <button class="btn btn-primary btn-block" style="padding:16px;font-size:1.1rem;" onclick="addToCart()" ${stock > 0 ? '' : 'disabled'}>Add to Cart</button>
+                 <button class="btn btn-accent btn-block mt-2" onclick="buyNow()" ${stock > 0 ? '' : 'disabled'}>Buy Now</button>`
             }
             <div class="card mt-3" style="padding:20px;">
               <h3 style="margin-bottom:10px;">Product Description</h3>
@@ -95,13 +94,114 @@
           </div>
         </div>
       `;
+      if (window.OneSpeedBackend?.configured()) {
+        await loadProductCommunity(p, authenticated);
+      }
     });
+
+    async function loadProductCommunity(product, authenticated) {
+      const content = document.getElementById('product-content');
+      try {
+        const [reviews, user] = await Promise.all([
+          OneSpeedBackend.listProductReviews(product.id),
+          OneSpeedBackend.currentUser()
+        ]);
+        const average = reviews.length
+          ? (reviews.reduce((sum, review) => sum + Number(review.rating), 0) / reviews.length).toFixed(1)
+          : null;
+        const reviewableOrders = user ? await OneSpeedBackend.listReviewableOrders(product.id) : [];
+        const uniqueOrders = [...new Map(reviewableOrders.map(item => [item.order_id, item.orders])).entries()];
+        const { data: wishlistRow, error: wishlistError } = user
+          ? await OneSpeedBackend.client().from('wishlist_items').select('product_id')
+            .eq('product_id', product.id).maybeSingle()
+          : { data: null, error: null };
+        if (wishlistError) throw wishlistError;
+
+        const reviewsHTML = reviews.map(review => `
+          <article class="product-review">
+            <p class="review-rating" aria-label="${Number(review.rating)} out of 5 stars">${'★'.repeat(Number(review.rating))}${'☆'.repeat(5 - Number(review.rating))}</p>
+            <p>${escapeHTML(review.body || 'No written comment.')}</p>
+            <time datetime="${escapeHTML(review.created_at)}">${escapeHTML(new Date(review.created_at).toLocaleDateString())}</time>
+          </article>`).join('');
+        content.insertAdjacentHTML('beforeend', `
+          <section class="product-community">
+            <section class="card product-reviews">
+              <h2>Customer reviews</h2>
+              <p class="review-summary">${average ? `${average} / 5 from ${reviews.length} published review${reviews.length === 1 ? '' : 's'}` : 'No published customer reviews yet.'}</p>
+              <div>${reviewsHTML || '<p>Verified-purchase reviews will appear here after moderation.</p>'}</div>
+            </section>
+            ${authenticated && uniqueOrders.length ? `
+              <section class="card product-review-form">
+                <h2>Review a purchase</h2>
+                <form id="product-review-form">
+                  <label>Completed order<select class="form-control" name="orderId" required>
+                    ${uniqueOrders.map(([orderId, order]) => `<option value="${escapeHTML(orderId)}">${escapeHTML(order.order_number)}</option>`).join('')}
+                  </select></label>
+                  <label>Rating<select class="form-control" name="rating" required>
+                    <option value="5">5 — Excellent</option><option value="4">4 — Very good</option>
+                    <option value="3">3 — Good</option><option value="2">2 — Fair</option><option value="1">1 — Poor</option>
+                  </select></label>
+                  <label>Review<textarea class="form-control" name="body" maxlength="3000" rows="4"></textarea></label>
+                  <button class="btn btn-primary" type="submit">Submit for review</button>
+                  <p id="review-status" role="status"></p>
+                </form>
+              </section>` : ''}
+          </section>`);
+
+        if (authenticated) {
+          const actions = content.querySelector('.product-detail > div:last-child');
+          const wishlistButton = document.createElement('button');
+          wishlistButton.type = 'button';
+          wishlistButton.className = 'btn btn-secondary btn-block mt-2';
+          let isSaved = Boolean(wishlistRow);
+          wishlistButton.textContent = isSaved ? 'Remove from wishlist' : 'Save to wishlist';
+          wishlistButton.addEventListener('click', async () => {
+            wishlistButton.disabled = true;
+            try {
+              await OneSpeedBackend.setWishlisted(product.id, !isSaved);
+              isSaved = !isSaved;
+              wishlistButton.textContent = isSaved ? 'Remove from wishlist' : 'Save to wishlist';
+              OSM.toast(isSaved ? 'Saved to wishlist' : 'Removed from wishlist');
+            } catch (error) {
+              OSM.toast(error.message || 'Could not update wishlist');
+            } finally { wishlistButton.disabled = false; }
+          });
+          actions?.querySelector('.card')?.before(wishlistButton);
+        }
+
+        document.getElementById('product-review-form')?.addEventListener('submit', async event => {
+          event.preventDefault();
+          const form = event.currentTarget;
+          const button = event.submitter;
+          const status = document.getElementById('review-status');
+          button.disabled = true;
+          try {
+            const values = new FormData(form);
+            await OneSpeedBackend.createProductReview({
+              productId: product.id,
+              orderId: String(values.get('orderId')),
+              rating: Number(values.get('rating')),
+              body: String(values.get('body') || '').trim()
+            });
+            form.reset();
+            status.textContent = 'Review submitted for moderation. It will appear after an administrator publishes it.';
+          } catch (error) { status.textContent = error.message || 'Could not submit review.'; }
+          finally { button.disabled = false; }
+        });
+      } catch (error) {
+        const section = document.createElement('section');
+        section.className = 'card page-state';
+        section.textContent = `Customer reviews are temporarily unavailable: ${error.message || 'Please try again later.'}`;
+        content.append(section);
+      }
+    }
 
     function changeQty(delta) {
       const input = document.getElementById('qty');
-      let v = parseInt(input.value) + delta;
-      if (v < 1) v = 1;
-      input.value = v;
+      if (!input) return;
+      const max = Number(input.max);
+      const current = Number.parseInt(input.value, 10) || 1;
+      input.value = Math.min(max, Math.max(1, current + delta));
     }
 
     async function requireShoppingLogin() {
@@ -122,7 +222,12 @@
     async function addToCart() {
       if (!await requireShoppingLogin()) return;
       const id = getQueryParam('id');
-      const qty = parseInt(document.getElementById('qty').value) || 1;
+      const input = document.getElementById('qty');
+      const qty = Number.parseInt(input?.value, 10);
+      if (!input || !Number.isInteger(qty) || qty < 1 || qty > Number(input.max)) {
+        OSM.toast('Choose a valid quantity available in stock.');
+        return;
+      }
       OSM.addToCart(id, qty);
       updateCartBadge();
       OSM.toast(`Added ${qty} item(s) to cart`);
@@ -131,7 +236,12 @@
     async function buyNow() {
       if (!await requireShoppingLogin()) return;
       const id = getQueryParam('id');
-      const qty = parseInt(document.getElementById('qty').value) || 1;
+      const input = document.getElementById('qty');
+      const qty = Number.parseInt(input?.value, 10);
+      if (!input || !Number.isInteger(qty) || qty < 1 || qty > Number(input.max)) {
+        OSM.toast('Choose a valid quantity available in stock.');
+        return;
+      }
       OSM.clearCart();
       OSM.addToCart(id, qty);
       location.href = 'checkout.html';

@@ -145,6 +145,20 @@ function getQueryParam(name) {
   return params.get(name);
 }
 
+function getSafeLocalRedirect(candidate, fallback = 'index.html') {
+  if (typeof candidate !== 'string' || !candidate || candidate.startsWith('//') || candidate.includes('\\')) {
+    return fallback;
+  }
+  try {
+    const destination = new URL(candidate, location.origin);
+    if (destination.origin !== location.origin || !/^https?:$/.test(destination.protocol)) return fallback;
+    if (/\/(?:login|register)\.html$/i.test(destination.pathname)) return fallback;
+    return `${destination.pathname.replace(/^\//, '')}${destination.search}${destination.hash}`;
+  } catch {
+    return fallback;
+  }
+}
+
 async function logout() {
   if (window.OneSpeedBackend?.configured()) {
     try {
@@ -198,8 +212,8 @@ function productCardHTML(p, showPrice = true) {
         </a>
         ${priceHTML}
         <div class="product-meta">
-          <span><span class="rating-star" aria-hidden="true">★</span> ${Number(p.rating) || 4.5}</span>
-          <span>${(Number(p.sales) || 0).toLocaleString()} sold</span>
+          <span>${escapeHTML(p.category || 'Marketplace item')}</span>
+          <span>${Number(p.stock) > 0 ? `${Number(p.stock)} in stock` : 'Out of stock'}</span>
         </div>
         ${!isGuest ? `
           <button class="btn btn-primary btn-sm btn-block mt-2" onclick="addToCartQuick('${escapeHTML(p.id)}')">Add to Cart</button>
@@ -215,9 +229,7 @@ function toStorefrontProduct(product) {
   return {
     ...product,
     id: product.id,
-    image: product.image_url || product.images?.[0] || 'assets/images/product-placeholder.svg',
-    sales: product.sales || 0,
-    rating: product.rating || 4.5
+    image: product.image_url || product.images?.[0] || 'assets/images/product-placeholder.svg'
   };
 }
 

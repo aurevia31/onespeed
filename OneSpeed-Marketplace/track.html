@@ -26,6 +26,9 @@
     <div id="track-result"></div>
   </main>
   <footer class="footer" id="site-footer"></footer>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="js/supabase-config.js"></script>
+  <script src="js/supabase.js"></script>
   <script src="js/data.js"></script>
   <script src="js/app.js"></script>
   <script>
@@ -42,7 +45,67 @@
       });
     });
 
-    function showOrder(query) {
+    async function showOrder(query) {
+      const result = document.getElementById('track-result');
+      if (window.OneSpeedBackend?.configured()) {
+        try {
+          const user = await OneSpeedBackend.currentUser();
+          if (!user) {
+            location.href = 'login.html?redirect=' + encodeURIComponent(location.pathname + location.search);
+            return;
+          }
+          const orders = await OneSpeedBackend.listCustomerOrders(user.id);
+          const match = orders.find(order =>
+            String(order.id) === query ||
+            String(order.order_number).toLowerCase() === query.toLowerCase() ||
+            String(order.tracking_number || '').toLowerCase() === query.toLowerCase()
+          );
+          if (!match) {
+            result.innerHTML = '<div class="card page-state"><h3>No order found</h3><p>Check the order ID or tracking code. Only orders on your signed-in account can be viewed.</p></div>';
+            return;
+          }
+          const order = await OneSpeedBackend.getOrder(match.id);
+          renderSupabaseOrder(order);
+        } catch (error) {
+          result.innerHTML = `<div class="card page-state"><h3>Could not load order</h3><p>${escapeHTML(error.message || 'Please try again.')}</p></div>`;
+        }
+        return;
+      }
+      showDemoOrder(query);
+    }
+
+    function renderSupabaseOrder(order) {
+      const result = document.getElementById('track-result');
+      const esc = value => escapeHTML(value ?? '');
+      const address = order.shipping_address || {};
+      const items = (order.order_items || []).map(item => `
+        <div class="flex gap-2 align-center" style="margin-bottom:10px;">
+          <img src="${esc(item.product_image_url || '')}" alt="" width="50" height="50" style="object-fit:cover;border-radius:8px;" onerror="this.style.display='none'">
+          <div style="flex:1;"><strong>${esc(item.product_title)}</strong><br><small>×${Number(item.quantity)} · ${esc(order.currency)} ${Number(item.unit_price).toFixed(2)}</small></div>
+        </div>`).join('') || '<p>Order item details are unavailable.</p>';
+      const history = (order.order_status_history || []).slice().sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at)).map(item => `
+        <div class="timeline-item done"><strong>${esc(item.status.replaceAll('_',' '))}</strong>
+          <div class="track-history-date">${esc(new Date(item.created_at).toLocaleString())}</div>${item.note ? `<div>${esc(item.note)}</div>` : ''}</div>`
+      ).join('');
+      const latitude = Number(address.latitude);
+      const longitude = Number(address.longitude);
+      const mapLink = Number.isFinite(latitude) && Number.isFinite(longitude)
+        ? `<a href="https://www.openstreetmap.org/?mlat=${latitude}&mlon=${longitude}#map=16/${latitude}/${longitude}" target="_blank" rel="noopener noreferrer">View delivery location</a>` : '';
+      result.innerHTML = `
+        <section class="card track-order-card">
+          <div class="flex justify-between align-center" style="flex-wrap:wrap;gap:12px;margin-bottom:20px;">
+            <div><h2>Order #${esc(order.order_number)}</h2><span class="status status-${esc(order.status)}">${esc(order.status.replaceAll('_',' '))}</span></div>
+            ${order.tracking_number ? `<div><small>Tracking code</small><br><strong>${esc(order.tracking_number)}</strong></div>` : ''}
+          </div>
+          <div class="track-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">
+            <div><h4>Items</h4>${items}<p><strong>Total: ${esc(order.currency)} ${Number(order.total).toFixed(2)}</strong></p></div>
+            <div><h4>Shipping to</h4><p>${esc(address.fullName)}<br>${esc(address.address)}<br>${esc([address.city,address.state,address.zip || address.postal_code,address.country].filter(Boolean).join(', '))}<br>${esc(address.phone)}</p>${mapLink}</div>
+          </div>
+          <h4>Status timeline</h4><div class="timeline">${history || '<p>No status updates yet.</p>'}</div>
+        </section>`;
+    }
+
+    function showDemoOrder(query) {
       const orders = OSM.getOrders();
       let order = orders.find(o => String(o.id) === query || o.trackingCode === query);
       const result = document.getElementById('track-result');

@@ -1,6 +1,6 @@
 # OneSpeed Marketplace
 
-Premium OneSpeed Marketplace frontend with the original forest-green / metallic-gold identity. The current site is a static HTML/CSS/JavaScript application. This upgrade adds a Supabase production foundation, multi-seller schema and policies, seller centre, secure manual bank-transfer submission/review flows, and setup documentation. **It is not yet a fully migrated production marketplace:** legacy storefront, cart, checkout, and several admin screens still use browser `localStorage` until their data operations are migrated to the Supabase APIs/RPCs.
+Premium OneSpeed Marketplace frontend with the original forest-green / metallic-gold identity. The existing application is static HTML/CSS/JavaScript with Supabase authentication, data, storage and RLS. Legacy demo mode remains available only for local preview.
 
 ## Quick start (frontend preview)
 
@@ -13,8 +13,9 @@ Open `http://localhost:8080`. Without Supabase configured, the original local de
 ## Supabase setup
 
 1. Create a Supabase project and configure Authentication email confirmation, password rules, production Site URL, redirect URLs and SMTP.
-2. In Supabase SQL Editor, run `supabase/schema.sql` in one go. It creates profiles, seller stores, categories, products, orders, order items, bank transfer submissions, seller payouts, reviews, support tickets, audit logs, RLS policies, storage buckets, and transactional RPCs.
-   If the original schema is already installed, run `supabase/delivery-zones-migration.sql` instead to add the delivery-zone table and update the order/fee RPCs.
+2. In Supabase SQL Editor, run `supabase/schema.sql` in one go. It creates profiles, seller stores/applications, categories, products, orders, order items, bank transfer submissions, seller payouts, reviews, support tickets, audit logs, RLS policies, storage buckets, and transactional RPCs.
+   Then run `supabase/marketplace-operations-migration.sql` for both fresh and existing projects. It adds persistent customer addresses, wishlist and notifications; order history; review moderation; support operations; audited payouts; product full-text search; and seller-visible product moderation notes.
+   On an existing project, apply any missing delivery-zone migration, then `supabase/auth-onboarding-migration.sql`, then `supabase/marketplace-operations-migration.sql`. Review and test migrations in staging before production.
 3. For local static preview, the Supabase configuration can be entered in `js/supabase-config.js`. For Docker or Render, use the runtime environment variables described below instead:
 
    ```js
@@ -25,8 +26,8 @@ Open `http://localhost:8080`. Without Supabase configured, the original local de
    ```
 
    Never use a `service_role` key in browser code or commit private secrets.
-4. Sign up using the login/register pages. Seller sign-ups are flagged as pending; platform admin must approve them. A seller must have `profiles.role='seller'` and `profiles.seller_status='approved'` before product insert policies allow their product uploads.
-5. Promote the first administrator from SQL Editor after the admin user has signed up (replace the email):
+4. Customers can register and shop without administrator approval. Customers submit seller applications from `/seller.html`; approval is required before seller-only actions, and database RLS enforces that gate.
+5. Promote the first administrator from SQL Editor after the intended admin has created and verified their Supabase Auth account (replace the email). This is a trusted, one-time operator action; never expose this operation to browser users:
 
    ```sql
    update public.profiles
@@ -34,21 +35,25 @@ Open `http://localhost:8080`. Without Supabase configured, the original local de
    where id = (select id from auth.users where email = 'YOUR-ADMIN-EMAIL');
    ```
 
-6. Configure the bank transfer instructions (bank name, account name, account number, supported currency and reference format) in a trusted business configuration before accepting payments. This repo intentionally does not invent bank details. Transfer submissions remain unpaid until an admin verifies the money has actually arrived and approves the submission in `admin/bank-transfers.html`.
+6. Configure bank-transfer instructions through your trusted business process before accepting payments. This repo intentionally does not invent bank details. Transfer submissions remain unpaid until an admin verifies the money has actually arrived and approves the submission in `admin/bank-transfers.html`.
 7. Set up production hosting with HTTPS, correct SPA/static routes, security headers, monitoring, backups and a verified domain.
 
 ## Deploy to Render
 
-This repository includes a root-level `render.yaml` Blueprint for the existing Docker/Nginx site. In Render, create a **Blueprint** from this GitHub repository and select the branch to deploy. Render reads the Blueprint and builds the Dockerfile from `OneSpeed-Marketplace/`; do not create a separate app or replace the existing site.
+This repository includes a root-level `render.yaml` Blueprint for the existing Docker/Nginx site. In Render, create a **Blueprint** from this GitHub repository and select the branch to deploy. Render reads the Blueprint and builds the Dockerfile from `OneSpeed-Marketplace/`; do not create a separate app or replace the existing site. Nginx sends a baseline Content Security Policy, frame/content-type protections, a referrer policy, and a permissions policy; inline scripts remain permitted because existing pages use inline handlers.
 
-When prompted, set these two environment variables on the Render service:
+When prompted, set these environment variables on the Render service:
 
 - `ONESPEED_SUPABASE_URL`: your Supabase project URL, for example `https://YOUR-PROJECT.supabase.co`.
 - `ONESPEED_SUPABASE_ANON_KEY`: the project's **public anon/publishable key**.
+- `ADMIN_EMAIL`: the email of the verified, active administrator in Supabase Auth.
+- `ADMIN_PASSWORD`: that administrator's Supabase Auth password; use a unique password of at least 16 characters.
 
-Both values must be set together. Container startup writes them into the browser's Supabase client configuration and refuses to start if only one is present or either value is malformed. Only public client credentials belong here; never add a Supabase `service_role` or secret key. The generated config endpoint is served with `Cache-Control: no-store`, so changing Render variables takes effect after redeploy without a stale browser config.
+Set both Supabase public values together. They are used by the existing browser client; the admin credentials are read only by a server-side Node endpoint in the Docker Web Service. The admin endpoint compares credentials to the deployment environment, rate-limits attempts, then verifies the resulting Supabase Auth session and database admin role before returning a normal Supabase session. The password itself is never sent back to the browser. `ADMIN_EMAIL` and `ADMIN_PASSWORD` must match the Supabase Auth account; this does not create or promote an admin account. Promotion remains a trusted SQL Editor operation. Missing admin environment settings fail closed for admin sign-in.
 
-If both variables are omitted, the container stays in the existing demo/preview mode; do not use that mode for real customer orders or authentication. The same optional variables can be supplied when running `docker compose` locally.
+Never add a Supabase `service_role` or secret key to Render, browser config, or repository files. The generated public config endpoint is served with `Cache-Control: no-store`.
+
+If both Supabase public variables are omitted, the container stays in the existing demo/preview mode; do not use that mode for real customer orders or authentication. Admin login remains unavailable unless its server environment is configured. The same optional variables can be supplied when running `docker compose` locally.
 
 Before using the live site, also:
 
@@ -59,12 +64,35 @@ Before using the live site, also:
 
 Render's health check requests `/`. Use Render's generated HTTPS URL initially; a custom domain can be configured later in the Render service settings.
 
+## Registration, seller onboarding, and admin routes
+
+- Customer registration: `/register.html`. Customers receive the default customer role and can shop without administrator approval. When Supabase email confirmation is enabled, they must verify the email before signing in.
+- Customer account: `/account.html`; saved addresses `/addresses.html`; wishlist `/wishlist.html`; notifications `/notifications.html`; bank transfer history `/payment-history.html`; support requests `/support.html`. Persistent customer services require Supabase and the operations migration.
+- Seller application and workspace: `/seller.html` (also linked from the signed-in account page). Customers can apply and continue shopping while pending. Rejected applications can be edited and resubmitted. Admin review is in `/admin/users.html`.
+- Administrator login: `/admin/login.html`.
+- Administrator dashboard: `/admin/index.html`; payouts `/admin/payouts.html`; review moderation `/admin/reviews.html`; support queue `/admin/support.html`.
+
+Admin login requires all four Render variables above. First create and verify the intended administrator in Supabase Auth, promote the profile with the trusted SQL statement in Supabase setup step 5, then configure the matching `ADMIN_EMAIL` and `ADMIN_PASSWORD` in Render. Existing Supabase admin accounts remain in place; do not run a role update for an account unless authorized.
+
+For local Codespaces testing, add the four values under **Codespaces → Settings → Secrets and variables → Codespaces**, then restart the Codespace so they are available to its environment. Alternatively, create a local `OneSpeed-Marketplace/.env` from `.env.example` and fill in local-only test values, then run `cd OneSpeed-Marketplace && docker compose up --build`. Never commit `.env`; it is excluded by both `.dockerignore` and the repository `.gitignore`. Supabase URL and anon key are public client configuration; admin credentials are passed only to the server process.
+
+Run the regression tests and build the production Docker image with:
+
+```bash
+cd OneSpeed-Marketplace
+node --test tests/*.test.js
+docker compose build
+```
+
 ## New backend foundation
 
 - `js/supabase-config.js` — public client configuration placeholders.
-- `js/supabase.js` — browser client bridge for Auth, profile lookup, product image uploads and transfer submission.
-- `supabase/schema.sql` — PostgreSQL schema, Row Level Security policies, storage buckets and transactional RPCs. `place_order` calculates prices on the server and reserves stock; `submit_bank_transfer` validates the customer's order total; `admin_review_bank_transfer` performs an admin-only atomic review and audit entry.
-- `seller.html` — approved seller centre with image upload and product/order overview.
+- `js/supabase.js` — browser client bridge for Auth, customer profiles, seller application/review, product image uploads and transfer submission.
+- `admin-auth-server.js` — server-only admin credential verification and rate limiting; exchanges verified credentials for a Supabase Auth session only after checking the user's active admin profile.
+- `supabase/schema.sql` — PostgreSQL schema, Row Level Security policies, storage buckets and transactional RPCs. `place_order` calculates prices on the server and reserves stock; seller role/status changes are protected and seller actions require approval.
+- `seller.html` — seller application, application status, and approved seller product/order centre.
+- `admin/login.html` — separate environment-credential administrator login.
+- `supabase/auth-onboarding-migration.sql` — additive customer/seller auth hardening migration for existing Supabase installations.
 - `bank-transfer.html` — customer transfer submission with private receipt upload.
 - `admin/bank-transfers.html` — admin review UI with short-lived signed receipt links.
 - `delivery-address.html` and `js/delivery-address.js` — reusable customer address form, saved-address prefill and Leaflet map selection.
@@ -73,7 +101,7 @@ Render's health check requests `/`. Use Render's generated HTTPS URL initially; 
 
 The map uses Leaflet 1.9.4 and `https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png`, with visible `© OpenStreetMap contributors` attribution. Address fields are entered manually; no geocoder or public Nominatim autocomplete is used. If the map or tile service is unavailable, manual address confirmation remains available. Confirmed address fields and optional latitude/longitude are included in `orders.shipping_address`; order reads continue to use the existing order RLS policy, including seller access only for sellers with an item in that order.
 
-When Supabase is configured, the storefront and product detail load active catalog products through RLS, and the cart resolves its product IDs against Supabase before checkout. Supabase checkout calls the transactional `place_order` RPC, which stores the address JSON, computes delivery fees server-side and uses database product prices/stock. Existing demo carts with numeric IDs are not converted into live orders. Without Supabase configuration, the preview continues to use the local demo catalog and store demo orders in localStorage only.
+When Supabase is configured, the storefront loads the catalog in 60-product pages and applies full-text search, category, currency, price, stock, and sort filters through the database; product detail and the cart resolve product IDs against Supabase before checkout. Admin product listings are paginated, and rejection notes are persisted for sellers. Supabase checkout calls the transactional `place_order` RPC, which stores the address JSON, computes delivery fees server-side and uses database product prices/stock. Existing demo carts with numeric IDs are not converted into live orders. Without Supabase configuration, the preview continues to use the local demo catalog and store demo orders in localStorage only.
 
 Run the focused address/map/backend payload tests with:
 
@@ -94,15 +122,14 @@ docker compose build
 - `assets/images/` original brand artwork, hero, category illustrations and placeholder
 - `css/styles.css`, `js/data.js`, `js/app.js`
 
-## Important migration work still required before production
+## Remaining production work
 
-- Migrate storefront product listing/detail, cart, checkout, orders, account, admin product/user/order pages from `localStorage` to Supabase queries and RPCs.
-- Configure and exercise the complete storefront/cart/order/payment flow against a dedicated Supabase staging project, including the SQL migration, admin fee zones and RLS checks; never trust client-supplied totals, product price or stock.
-- Finish seller application review and seller profile management in the admin UI; promote approved sellers using protected admin operations.
-- Configure official bank instructions and customer notifications; add a secure admin UI for maintaining payment instructions.
-- Implement fulfilment updates, refund/return workflows, payout settlement and idempotent notifications.
-- Complete browser-based end-to-end testing against a dedicated Supabase staging project, plus SQL policy tests and security review.
+- Apply the operations migration in a dedicated Supabase staging project and verify the resulting SQL/RLS behavior before production. No live Supabase project was available for this implementation session.
+- Run end-to-end customer, seller, administrator, checkout, payment-review and mobile-browser tests against configured staging credentials; the checked-in tests are local regression tests, not live-service tests.
+- Add trusted bank-instruction configuration before accepting transfers. A payout marked paid records an administrator-supplied transfer reference; it does not transfer funds.
+- Refund processing and external payout settlement remain manual business operations. The order status workflow records administrative decisions but does not initiate a bank refund.
+- Local preview still contains the legacy `localStorage` demo fallback; it is not used as the source of truth when Supabase is configured and must not be used for production transactions.
 
 ## Local demo credentials
 
-The legacy `js/data.js` includes seeded local demo credentials for offline preview. These are stored in browser storage and are **not secure authentication**. Do not use them in production; configure Supabase Auth and remove demo mode for public launch.
+The legacy `js/data.js` includes a seeded local demo customer for offline preview. This is stored in browser storage and is **not secure authentication**. There is no seeded demo administrator; admin routes require the server-verified Supabase admin login. Do not use local demo accounts in production.

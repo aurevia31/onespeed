@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Product reviews – OneSpeed Admin</title>
+  <link rel="stylesheet" href="../css/styles.css">
+  <style>html[data-admin-auth="checking"] body{visibility:hidden}</style>
+  <script>document.documentElement.dataset.adminAuth="checking";</script>
+</head>
+<body>
+  <header class="header"><div class="header-inner">
+    <a href="index.html" class="logo"><img src="../assets/images/onespeed-marketplace-brand.webp" alt="OneSpeed Marketplace Admin" width="180" height="45"></a>
+    <div class="nav-actions"><a href="../index.html" class="btn btn-secondary btn-sm">View store</a></div>
+  </div></header>
+  <div class="admin-layout"><main class="admin-content">
+    <h1 class="section-title">Product review moderation</h1>
+    <p class="page-intro">Only published reviews appear on storefront product pages. Reviews are restricted to completed purchases.</p>
+    <p id="review-admin-state" class="page-state card" role="status">Loading submissions…</p>
+    <div id="review-admin-list" class="support-list"></div>
+  </main></div>
+  <footer class="footer" id="site-footer"></footer>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="../js/supabase-config.js"></script>
+  <script src="../js/supabase.js"></script>
+  <script src="../js/admin-auth.js"></script>
+  <script src="../js/data.js"></script>
+  <script src="../js/app.js"></script>
+  <script>
+    const state = document.getElementById('review-admin-state');
+    const list = document.getElementById('review-admin-list');
+    const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
+    async function load() {
+      try {
+        const { data, error } = await OneSpeedBackend.client().from('reviews')
+          .select('id,product_id,customer_id,order_id,rating,body,is_published,created_at,products(title)')
+          .order('created_at', { ascending: false }).limit(200);
+        if (error) throw error;
+        const pending = data.filter(review => !review.is_published);
+        state.textContent = `${pending.length} review(s) await moderation · ${data.length} total in this queue.`;
+        list.innerHTML = data.map(review => `
+          <article class="card support-card">
+            <div class="flex justify-between align-center support-heading">
+              <h2>${esc(review.products?.title || 'Product')}</h2>
+              <span class="status status-${review.is_published ? 'approved' : 'pending'}">${review.is_published ? 'Published' : 'Pending review'}</span>
+            </div>
+            <p class="review-rating" aria-label="${Number(review.rating)} out of 5 stars">${'★'.repeat(Number(review.rating))}${'☆'.repeat(5 - Number(review.rating))}</p>
+            <p>${esc(review.body || 'No written comment.')}</p>
+            <p><small>Customer ${esc(review.customer_id)} · Order ${esc(review.order_id)} · ${esc(new Date(review.created_at).toLocaleString())}</small></p>
+            <div class="flex gap-2">
+              ${review.is_published
+                ? `<button class="btn btn-secondary btn-sm" data-review="${esc(review.id)}" data-publish="false">Unpublish</button>`
+                : `<button class="btn btn-primary btn-sm" data-review="${esc(review.id)}" data-publish="true">Publish review</button>`}
+            </div>
+          </article>`).join('') || '<p class="card page-state">No product reviews have been submitted.</p>';
+      } catch (error) { state.textContent = error.message || 'Could not load reviews.'; }
+    }
+    list.addEventListener('click', async event => {
+      const button = event.target.closest('[data-review]');
+      if (!button) return;
+      button.disabled = true;
+      try {
+        const { error } = await OneSpeedBackend.client().rpc('admin_review_product_review', {
+          p_review_id: button.dataset.review, p_publish: button.dataset.publish === 'true'
+        });
+        if (error) throw error;
+        await load();
+      } catch (error) { state.textContent = error.message || 'Could not update review.'; button.disabled = false; }
+    });
+    OneSpeedAdmin.ready.then(admin => { if (admin) load(); });
+  </script>
+</body>
+</html>

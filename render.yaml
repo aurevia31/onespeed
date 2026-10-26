@@ -10,3 +10,7 @@ services:
         sync: false
       - key: ONESPEED_SUPABASE_ANON_KEY
         sync: false
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false

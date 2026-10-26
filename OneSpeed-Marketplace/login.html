@@ -25,6 +25,7 @@
           <button type="submit" class="btn btn-primary btn-block">Login</button>
         </form>
         <p class="text-center mt-3" style="font-size:0.9rem;">Don't have an account? <a href="register.html" style="color:var(--primary-dark);font-weight:700;">Sign Up</a></p>
+        <p class="text-center mt-2" style="font-size:0.9rem;">Administrator? <a href="admin/login.html" style="color:var(--primary-dark);font-weight:700;">Admin login</a></p>
         <p id="auth-mode-note" class="text-center mt-3" style="font-size:0.8rem;color:var(--text-light);">Sign in securely to access your account.</p>
       </div>
     </div>
@@ -42,21 +43,32 @@
       const fd = new FormData(e.target);
       if (window.OneSpeedBackend?.configured()) {
         try {
-          const result = await OneSpeedBackend.signIn(fd.get('email'), fd.get('password'));
+          await OneSpeedBackend.signIn(fd.get('email'), fd.get('password'));
           const profile = await OneSpeedBackend.profile();
-          if (!profile || !profile.is_active) throw new Error('Your account is inactive. Contact support.');
-          if (profile.role === 'seller' && profile.seller_status !== 'approved') throw new Error('Your seller account is awaiting approval.');
+          if (!profile || !profile.is_active) {
+            await OneSpeedBackend.signOut();
+            throw new Error('Unable to sign in. Check your account and try again.');
+          }
+          if (profile.role === 'admin') {
+            await OneSpeedBackend.signOut();
+            throw new Error('Use the administrator login page.');
+          }
           OSM.toast('Welcome back!');
-          const fallback = profile.role === 'admin' ? 'admin/index.html' : profile.role === 'seller' ? 'seller.html' : 'index.html';
-          setTimeout(() => location.href = getQueryParam('redirect') || fallback, 500);
-        } catch (err) { OSM.toast(err.message || 'Unable to sign in.'); }
+          const fallback = profile.role === 'seller' ? 'seller.html' : 'index.html';
+          setTimeout(() => location.href = getSafeLocalRedirect(getQueryParam('redirect'), fallback), 500);
+        } catch (err) {
+          const message = /email not confirmed/i.test(err.message || '')
+            ? 'Please verify your email using the link we sent before signing in.'
+            : err.message || 'Unable to sign in.';
+          OSM.toast(message);
+        }
         return;
       }
       OSM.toast('Demo mode is active. Configure Supabase before public deployment.');
       const res = OSM.login(fd.get('email'), fd.get('password'));
       if (res.error) { OSM.toast(res.error); return; }
       OSM.toast('Demo sign-in successful.');
-      const redirect = getQueryParam('redirect') || (res.user.role === 'admin' ? 'admin/index.html' : 'index.html');
+      const redirect = getSafeLocalRedirect(getQueryParam('redirect'), 'index.html');
       setTimeout(() => location.href = redirect, 600);
     });
   </script>

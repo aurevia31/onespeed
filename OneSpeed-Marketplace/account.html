@@ -24,22 +24,31 @@
       let user;
       let orders;
       let remoteOrders = false;
+      let authUser = null;
+      let profile = null;
+      let sellerStatus = 'not_applied';
+      let sellerReviewNote = '';
       if (window.OneSpeedBackend?.configured()) {
         try {
-          const authUser = await OneSpeedBackend.currentUser();
+          authUser = await OneSpeedBackend.currentUser();
           if (!authUser) {
             location.href = 'login.html?redirect=account.html';
             return;
           }
-          const profile = await OneSpeedBackend.profile();
+          profile = await OneSpeedBackend.profile();
           session = { id: authUser.id, role: profile?.role };
           user = {
             name: profile?.full_name || '',
             email: authUser.email,
             phone: profile?.phone,
-            verified: profile?.is_active,
+            verified: Boolean(authUser.email_confirmed_at),
             createdAt: profile?.created_at
           };
+          sellerStatus = profile?.seller_status || 'not_applied';
+          const { data: sellerApplication, error: sellerApplicationError } = await OneSpeedBackend.client()
+            .from('seller_profiles').select('review_note').eq('user_id', authUser.id).maybeSingle();
+          if (sellerApplicationError) throw sellerApplicationError;
+          sellerReviewNote = sellerApplication?.review_note || '';
           orders = await OneSpeedBackend.listCustomerOrders(authUser.id);
           remoteOrders = true;
         } catch (error) {
@@ -80,7 +89,20 @@
             <p><strong>Email:</strong> ${escapeHTML(user.email)}</p>
             <p><strong>Phone:</strong> ${escapeHTML(user.phone || '—')}</p>
             <p><strong>Status:</strong> ${user.verified ? '<span class="status status-approved">Verified</span>' : '<span class="status status-pending">Pending Verification</span>'}</p>
-            <p style="margin-top:14px;"><a href="delivery-address.html" class="btn btn-secondary btn-sm">Manage delivery address</a></p>
+            ${remoteOrders ? `<form id="profile-form" class="profile-edit-form">
+              <h3>Profile settings</h3>
+              <label>Full name<input class="form-control" name="fullName" required maxlength="160" value="${escapeHTML(user.name)}"></label>
+              <label>Phone<input class="form-control" name="phone" type="tel" maxlength="40" value="${escapeHTML(user.phone || '')}"></label>
+              <button class="btn btn-secondary btn-sm" type="submit">Save profile</button>
+              <p id="profile-status" role="status"></p>
+            </form>` : ''}
+            <p style="margin-top:14px;"><a href="addresses.html" class="btn btn-secondary btn-sm">Manage saved addresses</a></p>
+            ${remoteOrders ? `<hr style="margin:18px 0;border:0;border-top:1px solid #eee;">
+              <h3>Seller account</h3>
+              <p><strong>Status:</strong> <span class="status status-${sellerStatus === 'approved' ? 'approved' : sellerStatus === 'rejected' ? 'rejected' : sellerStatus === 'pending' ? 'pending' : 'not_applied'}">${escapeHTML(sellerStatus.replace('_',' '))}</span></p>
+              ${sellerStatus === 'rejected' && sellerReviewNote ? `<p>${escapeHTML(sellerReviewNote)}</p>` : ''}
+              <p style="margin-top:12px;"><a href="seller.html" class="btn btn-secondary btn-sm">${sellerStatus === 'approved' ? 'Open Seller Centre' : sellerStatus === 'pending' ? 'Track application' : sellerStatus === 'rejected' ? 'Update and resubmit' : 'Become a Seller'}</a></p>
+            ` : ''}
             ${user.createdAt ? `<p style="font-size:0.85rem;color:var(--text-light);margin-top:12px;">Member since ${new Date(user.createdAt).toLocaleDateString()}</p>` : ''}
           </div>
           <div>
@@ -88,7 +110,35 @@
             ${ordersHTML}
           </div>
         </div>
+        ${remoteOrders ? `
+          <section class="account-tools">
+            <h2 class="section-title">Account services</h2>
+            <div class="account-tools-grid">
+              <a class="card account-tool" href="wishlist.html"><strong>Wishlist</strong><span>Review products saved to your account.</span></a>
+              <a class="card account-tool" href="addresses.html"><strong>Delivery addresses</strong><span>Manage private saved delivery details.</span></a>
+              <a class="card account-tool" href="notifications.html"><strong>Notifications</strong><span>Order, seller application, payment, and support updates.</span></a>
+              <a class="card account-tool" href="payment-history.html"><strong>Payment history</strong><span>View your bank-transfer submission status.</span></a>
+              <a class="card account-tool" href="support.html"><strong>Customer support</strong><span>Open a support request and follow replies.</span></a>
+            </div>
+          </section>
+        ` : ''}
       `;
+      document.getElementById('profile-form')?.addEventListener('submit', async event => {
+        event.preventDefault();
+        const form = event.currentTarget;
+        const button = form.querySelector('button[type="submit"]');
+        const status = document.getElementById('profile-status');
+        button.disabled = true;
+        try {
+          const values = new FormData(form);
+          const { error } = await OneSpeedBackend.client().from('profiles')
+            .update({ full_name: String(values.get('fullName')).trim(), phone: String(values.get('phone') || '').trim() || null })
+            .eq('id', authUser.id);
+          if (error) throw error;
+          status.textContent = 'Profile updated.';
+        } catch (error) { status.textContent = error.message || 'Could not update profile.'; }
+        finally { button.disabled = false; }
+      });
     });
 
     function escapeHTML(value) {

@@ -27,10 +27,6 @@
             <input type="tel" class="form-control" name="phone" placeholder="+234...">
           </div>
           <div class="form-group">
-            <label>Account type *</label>
-            <select class="form-control" name="accountType"><option value="customer">Customer</option><option value="seller">Seller</option></select>
-          </div>
-          <div class="form-group">
             <label>Password *</label>
             <input type="password" class="form-control" name="password" required minlength="6">
           </div>
@@ -41,7 +37,7 @@
           <button type="submit" class="btn btn-primary btn-block">Create Account</button>
         </form>
         <p class="text-center mt-3" style="font-size:0.9rem;">Already have an account? <a href="login.html" style="color:var(--primary-dark);font-weight:700;">Login</a></p>
-        <p class="text-center mt-2" style="font-size:0.8rem;color:var(--text-light);">New accounts require Admin verification before full access.</p>
+        <p class="text-center mt-2" style="font-size:0.9rem;">Want to sell? Create your customer account first, then <a href="seller.html">apply to become a seller</a>.</p>
       </div>
     </div>
   </main>
@@ -61,18 +57,28 @@
       }
       if (window.OneSpeedBackend?.configured()) {
         try {
-          await OneSpeedBackend.signUp({ name: fd.get('name'), email: fd.get('email'), phone: fd.get('phone'), password: fd.get('password'), role: fd.get('accountType') });
-          OSM.toast(fd.get('accountType') === 'seller' ? 'Account created. Complete seller onboarding after confirming your email.' : 'Account created. Check your email to confirm your address.');
-          setTimeout(() => location.href = 'login.html', 1200);
+          const result = await OneSpeedBackend.signUp({
+            name: String(fd.get('name')).trim(),
+            email: String(fd.get('email')).trim(),
+            phone: String(fd.get('phone') || '').trim(),
+            password: String(fd.get('password'))
+          });
+          if (result.session) {
+            OSM.toast('Account created. You can start shopping now.');
+            setTimeout(() => location.href = 'account.html', 900);
+          } else {
+            OSM.toast('Account created. Check your email to verify your address, then sign in.');
+            setTimeout(() => location.href = 'login.html', 1500);
+          }
         } catch (err) { OSM.toast(err.message || 'Unable to create account.'); }
         return;
       }
-      const res = OSM.registerUser({ name: fd.get('name'), email: fd.get('email'), phone: fd.get('phone'), password: fd.get('password') });
+      const res = OSM.registerUser({ name: fd.get('name'), email: fd.get('email'), phone: fd.get('phone'), password: fd.get('password'), role: 'customer' });
       if (res.error) {
         OSM.toast(res.error);
         return;
       }
-      OSM.toast('Demo account created locally. Configure Supabase before public deployment.');
+      OSM.toast('Demo customer account created locally. Configure Supabase for real customer accounts.');
       setTimeout(() => location.href = 'login.html', 1200);
     });
   </script>

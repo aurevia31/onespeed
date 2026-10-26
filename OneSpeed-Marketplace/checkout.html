@@ -91,7 +91,29 @@
         const product = products.find(pr => String(pr.id) === String(item.productId));
         return sum + (product ? Number(product.price) * item.qty : 0);
       }, 0);
-      const savedAddress = OneSpeedDeliveryAddress.readSavedAddress();
+      let savedAddress = OneSpeedDeliveryAddress.readSavedAddress();
+      if (supabaseMode) {
+        try {
+          const addresses = await OneSpeedBackend.listCustomerAddresses();
+          const preferred = addresses.find(address => address.is_default) || addresses[0];
+          if (preferred) savedAddress = {
+            id: preferred.id,
+            label: preferred.label,
+            fullName: preferred.full_name,
+            phone: preferred.phone,
+            address: preferred.address,
+            city: preferred.city,
+            state: preferred.state,
+            zip: preferred.postal_code,
+            country: preferred.country,
+            latitude: preferred.latitude,
+            longitude: preferred.longitude
+          };
+        } catch (error) {
+          console.error('OneSpeed: saved delivery address could not be loaded.', error);
+          OSM.toast('Saved addresses could not be loaded. You can still enter your address manually.');
+        }
+      }
 
       document.getElementById('checkout-content').innerHTML = `
         <div style="display:grid;grid-template-columns:1fr 340px;gap:24px;" class="checkout-grid">

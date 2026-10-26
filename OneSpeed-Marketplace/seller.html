@@ -22,11 +22,47 @@
     <h1>Seller Centre</h1>
     <p class="muted">Manage your OneSpeed store, products and fulfilment.</p>
     <div id="seller-state" class="card seller-panel">Checking seller account…</div>
+    <section id="seller-application" class="card seller-panel" hidden>
+      <h2>Become a Seller</h2>
+      <p class="muted">Apply using your customer account. You can continue shopping while your application is reviewed.</p>
+      <form id="seller-application-form" class="seller-form">
+        <label>Store name<input name="storeName" required minlength="2" maxlength="120"></label>
+        <div class="seller-grid">
+          <label>Business contact email<input name="email" type="email" required></label>
+          <label>Business contact phone<input name="phone" type="tel" required></label>
+        </div>
+        <label>Business description<textarea name="description" rows="4" required minlength="10" maxlength="3000"></textarea></label>
+        <label>Business address<input name="storeAddress" required></label>
+        <label>Additional verification information (optional)<textarea name="verificationNote" rows="3" maxlength="2000"></textarea></label>
+        <button class="btn btn-primary" type="submit">Submit seller application</button>
+      </form>
+    </section>
     <section id="seller-app" hidden>
       <div class="seller-grid">
         <div class="card seller-panel"><h3>Products</h3><strong id="product-count">—</strong></div>
         <div class="card seller-panel"><h3>Orders to fulfil</h3><strong id="order-count">—</strong></div>
+        <div class="card seller-panel"><h3>Sales from paid orders</h3><strong id="sales-total">—</strong><p id="sales-currency" class="muted"></p></div>
+        <div class="card seller-panel"><h3>Low stock products</h3><strong id="low-stock-count">—</strong></div>
       </div>
+      <section class="card seller-panel">
+        <h2>Sales activity</h2>
+        <p class="muted">Paid order-item totals from the latest 30 days. No estimated or projected earnings.</p>
+        <div id="sales-chart" role="img" aria-label="Sales chart loading">Loading sales…</div>
+      </section>
+      <section class="card seller-panel">
+        <h2>Store profile</h2>
+        <form id="store-profile-form" class="seller-form">
+          <label>Store name<input name="storeName" required minlength="2" maxlength="120"></label>
+          <label>Business description<textarea name="description" required minlength="10" maxlength="3000" rows="3"></textarea></label>
+          <div class="seller-grid">
+            <label>Support email<input name="email" type="email" required></label>
+            <label>Contact phone<input name="phone" type="tel" required></label>
+          </div>
+          <label>Business address<input name="storeAddress" required></label>
+          <button class="btn btn-secondary" type="submit">Save store profile</button>
+          <p id="store-profile-status" role="status"></p>
+        </form>
+      </section>
       <div class="card seller-panel">
         <h2>Add a product</h2>
         <form id="product-form" class="seller-form">
@@ -44,8 +80,29 @@
       </div>
       <div class="card seller-panel"><h2>Your products</h2><div id="seller-products">Loading…</div></div>
       <div class="card seller-panel"><h2>Recent order items</h2><div id="seller-orders">Loading…</div></div>
+      <div class="card seller-panel"><h2>Payout ledger</h2><p class="muted">Payouts are not sent automatically. Only an administrator can record a confirmed transfer.</p><div id="seller-payouts">Loading…</div></div>
     </section>
   </main>
+  <div class="modal-overlay" id="seller-product-modal" aria-hidden="true">
+    <div class="modal">
+      <div class="modal-header"><h2>Edit product</h2><button type="button" class="modal-close" data-close-product-modal aria-label="Close">×</button></div>
+      <div class="modal-body">
+        <form id="seller-edit-product-form" class="seller-form">
+          <input type="hidden" name="id">
+          <label>Product name<input name="title" required maxlength="180"></label>
+          <label>Description<textarea name="description" required maxlength="5000" rows="4"></textarea></label>
+          <div class="seller-grid">
+            <label>Price (NGN)<input name="price" type="number" min="0.01" step="0.01" required></label>
+            <label>Stock<input name="stock" type="number" min="0" step="1" required></label>
+            <label>Category<input name="category" required maxlength="120"></label>
+          </div>
+          <label>Replace product image (optional)<input name="image" type="file" accept="image/jpeg,image/png,image/webp,image/avif"><span class="muted">JPG, PNG, WebP or AVIF, maximum 5 MB.</span></label>
+          <button class="btn btn-primary" type="submit">Save and submit for review</button>
+          <p id="seller-edit-status" role="status"></p>
+        </form>
+      </div>
+    </div>
+  </div>
   <footer class="footer" id="site-footer"></footer>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="js/supabase-config.js"></script>
@@ -71,37 +128,109 @@
           state.textContent = 'This account is inactive. Contact support.';
           return;
         }
+        const db = OneSpeedBackend.client();
+        const applicationForm = document.getElementById('seller-application-form');
+        const applicationSection = document.getElementById('seller-application');
         if (profile.seller_status !== 'approved' || profile.role !== 'seller') {
-          state.textContent = profile.seller_status === 'pending'
-            ? 'Your seller application is awaiting admin review. You can return here after approval.'
-            : 'This account is not an approved seller. Register as a seller or contact the marketplace administrator.';
+          const { data: application, error } = await db.from('seller_profiles')
+            .select('application_status,application_note,review_note')
+            .eq('user_id', user.id)
+            .maybeSingle();
+          if (error) throw error;
+          if (application?.application_status === 'pending') {
+            state.innerHTML = '<strong>Pending review.</strong> Your application is with the marketplace team. You can keep shopping and track this status here.';
+            return;
+          }
+          if (profile.seller_status === 'rejected' || application?.application_status === 'rejected') {
+            state.innerHTML = `<strong>Application rejected.</strong> ${application?.review_note ? escapeHTML(application.review_note) : 'You may update your details and submit a new application.'}`;
+          } else {
+            state.textContent = 'Your customer account is ready. Apply below to request seller access.';
+          }
+          applicationSection.hidden = false;
+          applicationForm.elements.email.value = user.email || '';
+          applicationForm.addEventListener('submit', async event => {
+            event.preventDefault();
+            const values = new FormData(applicationForm);
+            const button = event.submitter;
+            button.disabled = true;
+            try {
+              await OneSpeedBackend.applySellerApplication({
+                storeName: String(values.get('storeName')).trim(),
+                description: String(values.get('description')).trim(),
+                email: String(values.get('email')).trim(),
+                phone: String(values.get('phone')).trim(),
+                address: { store_address: String(values.get('storeAddress')).trim() },
+                verificationNote: String(values.get('verificationNote') || '').trim()
+              });
+              applicationSection.hidden = true;
+              state.innerHTML = '<strong>Pending review.</strong> Your application was submitted. You can keep shopping while it is reviewed.';
+            } catch (error) {
+              state.textContent = error.message || 'Could not submit your application.';
+              button.disabled = false;
+            }
+          });
           return;
         }
         app.hidden = false;
         state.textContent = 'Signed in as ' + (profile.full_name || user.email) + ' · Store access approved';
-        const db = OneSpeedBackend.client();
+        const { data: storeProfile, error: storeProfileError } = await db.from('seller_profiles')
+          .select('store_name,description,support_email,contact_phone,address')
+          .eq('user_id', user.id).single();
+        if (storeProfileError) throw storeProfileError;
+        const storeForm = document.getElementById('store-profile-form');
+        storeForm.elements.storeName.value = storeProfile.store_name;
+        storeForm.elements.description.value = storeProfile.description;
+        storeForm.elements.email.value = storeProfile.support_email || user.email || '';
+        storeForm.elements.phone.value = storeProfile.contact_phone || profile.phone || '';
+        storeForm.elements.storeAddress.value = storeProfile.address?.store_address || '';
+        const productsById = new Map();
 
         async function load() {
           const { data: products, error: productsError } = await db.from('products')
-            .select('id,title,price,stock,status,image_url,category')
+            .select('id,title,description,price,stock,status,moderation_note,image_url,category')
             .eq('seller_id', user.id)
             .order('created_at', { ascending: false });
           if (productsError) throw productsError;
+          productsById.clear();
+          products.forEach(product => productsById.set(product.id, product));
           document.getElementById('product-count').textContent = products.length;
+          document.getElementById('low-stock-count').textContent = products.filter(product => Number(product.stock) < 5).length;
           document.getElementById('seller-products').innerHTML = products.length
-            ? '<table class="seller-table"><thead><tr><th>Product</th><th>Price</th><th>Stock</th><th>Status</th></tr></thead><tbody>' +
-              products.map(product => `<tr><td>${escapeHTML(product.title)}</td><td>${escapeHTML(product.price)}</td><td>${product.stock}</td><td>${escapeHTML(product.status)}</td></tr>`).join('') +
-              '</tbody></table>'
+            ? '<div class="table-wrap"><table class="seller-table"><thead><tr><th>Product</th><th>Price</th><th>Stock</th><th>Status</th><th>Actions</th></tr></thead><tbody>' +
+              products.map(product => `<tr>
+                <td><div class="seller-product-title">${product.image_url ? `<img src="${escapeHTML(product.image_url)}" alt="" width="44" height="44" loading="lazy">` : ''}${escapeHTML(product.title)}</div></td>
+                <td>NGN ${Number(product.price).toFixed(2)}</td><td>${product.stock}</td>
+                <td><span class="status status-${product.status === 'active' ? 'approved' : product.status === 'rejected' ? 'rejected' : 'pending'}">${escapeHTML(product.status.replace('_',' '))}</span>${product.moderation_note ? `<small class="product-moderation-note">${escapeHTML(product.moderation_note)}</small>` : ''}</td>
+                <td class="seller-actions">
+                  <button class="btn btn-secondary btn-sm" type="button" data-product-edit="${escapeHTML(product.id)}">Edit</button>
+                  ${['draft','pending_review'].includes(product.status) ? `<button class="btn btn-accent btn-sm" type="button" data-product-delete="${escapeHTML(product.id)}">Delete</button>` : product.status !== 'archived' ? `<button class="btn btn-secondary btn-sm" type="button" data-product-archive="${escapeHTML(product.id)}">Archive</button>` : ''}
+                </td>
+              </tr>`).join('') +
+              '</tbody></table></div>'
             : 'No products yet.';
 
-          const { data: items, error: itemsError } = await db.from('order_items')
-            .select('id,product_title,quantity,unit_price,order_id,orders!inner(order_number,status,created_at,shipping_address)')
-            .eq('seller_id', user.id)
-            .order('created_at', { referencedTable: 'orders', ascending: false })
-            .limit(30);
-          if (itemsError) throw itemsError;
-          document.getElementById('order-count').textContent =
-            items.filter(item => ['paid', 'processing'].includes(item.orders.status)).length;
+          const allItems = [];
+          for (let offset = 0; ; offset += 1000) {
+            const { data: page, error } = await db.from('order_items')
+              .select('id,product_title,quantity,unit_price,order_id,orders!inner(order_number,status,created_at,shipping_address,currency)')
+              .eq('seller_id', user.id)
+              .order('created_at', { referencedTable: 'orders', ascending: false })
+              .range(offset, offset + 999);
+            if (error) throw error;
+            allItems.push(...page);
+            if (page.length < 1000) break;
+          }
+          const items = allItems.slice(0, 30);
+          const pendingFulfillment = allItems.filter(item => ['paid', 'processing'].includes(item.orders.status));
+          document.getElementById('order-count').textContent = pendingFulfillment.length;
+          const paidItems = allItems.filter(item => ['paid', 'processing', 'shipped', 'delivered'].includes(item.orders.status));
+          const salesCurrencies = [...new Set(paidItems.map(item => item.orders.currency.trim()))];
+          document.getElementById('sales-total').textContent = salesCurrencies.length === 1
+            ? `${salesCurrencies[0]} ${paidItems.reduce((sum, item) => sum + Number(item.unit_price) * Number(item.quantity), 0).toFixed(2)}`
+            : salesCurrencies.length ? 'Multiple currencies' : '—';
+          document.getElementById('sales-currency').textContent = salesCurrencies.length > 1
+            ? 'Totals are not combined across currencies.' : 'Paid order-item gross; not seller net payout.';
+          renderSalesChart(paidItems);
           document.getElementById('seller-orders').innerHTML = items.length
             ? '<div class="table-wrap"><table class="seller-table"><thead><tr><th>Order</th><th>Item</th><th>Qty</th><th>Status</th><th>Delivery address</th></tr></thead><tbody>' +
               items.map(item => {
@@ -116,6 +245,12 @@
               }).join('') +
               '</tbody></table></div>'
             : 'No order items yet.';
+          const payouts = await OneSpeedBackend.listSellerPayouts();
+          document.getElementById('seller-payouts').innerHTML = payouts.length
+            ? '<div class="table-wrap"><table class="seller-table"><thead><tr><th>Net amount</th><th>Status</th><th>Transfer reference</th><th>Updated</th></tr></thead><tbody>' +
+              payouts.map(payout => `<tr><td>${Number(payout.net_amount).toFixed(2)}</td><td><span class="status status-${payout.status === 'paid' ? 'approved' : payout.status === 'reversed' ? 'rejected' : 'pending'}">${escapeHTML(payout.status)}</span></td><td>${escapeHTML(payout.payout_reference || '—')}</td><td>${escapeHTML(payout.paid_at ? new Date(payout.paid_at).toLocaleDateString() : new Date(payout.created_at).toLocaleDateString())}</td></tr>`).join('') +
+              '</tbody></table></div>'
+            : '<p>No paid-order payout records yet.</p>';
         }
 
         await load();
@@ -152,10 +287,131 @@
             button.disabled = false;
           }
         });
+        document.getElementById('seller-products').addEventListener('click', async event => {
+          const editId = event.target.closest('[data-product-edit]')?.dataset.productEdit;
+          const archiveId = event.target.closest('[data-product-archive]')?.dataset.productArchive;
+          const deleteId = event.target.closest('[data-product-delete]')?.dataset.productDelete;
+          try {
+            if (editId) {
+              const product = productsById.get(editId);
+              if (!product) return;
+              const editForm = document.getElementById('seller-edit-product-form');
+              editForm.elements.id.value = product.id;
+              editForm.elements.title.value = product.title;
+              editForm.elements.description.value = product.description || '';
+              editForm.elements.price.value = product.price;
+              editForm.elements.stock.value = product.stock;
+              editForm.elements.category.value = product.category;
+              editForm.elements.image.value = '';
+              document.getElementById('seller-product-modal').classList.add('show');
+              return;
+            }
+            if (archiveId && confirm('Archive this listing? It will no longer be available in the storefront.')) {
+              const { error } = await db.from('products').update({ status: 'archived' }).eq('id', archiveId).eq('seller_id', user.id);
+              if (error) throw error;
+              await load();
+            }
+            if (deleteId && confirm('Permanently delete this draft or pending product?')) {
+              const { error } = await db.from('products').delete().eq('id', deleteId).eq('seller_id', user.id);
+              if (error) throw error;
+              await load();
+            }
+          } catch (error) { state.textContent = error.message || 'Could not update product.'; }
+        });
+        document.getElementById('seller-edit-product-form').addEventListener('submit', async event => {
+          event.preventDefault();
+          const editForm = event.currentTarget;
+          const button = event.submitter;
+          const statusEl = document.getElementById('seller-edit-status');
+          button.disabled = true;
+          try {
+            const values = new FormData(editForm);
+            const productId = String(values.get('id'));
+            const existing = productsById.get(productId);
+            if (!existing) throw new Error('Product no longer exists. Refresh the page.');
+            let imageUrl = existing.image_url;
+            const imageFile = values.get('image');
+            if (imageFile?.size) imageUrl = (await OneSpeedBackend.uploadProductImage(imageFile)).url;
+            const { error } = await db.from('products').update({
+              title: String(values.get('title')).trim(),
+              description: String(values.get('description')).trim(),
+              price: Number(values.get('price')),
+              stock: Number(values.get('stock')),
+              category: String(values.get('category')).trim(),
+              image_url: imageUrl,
+              images: imageUrl ? [imageUrl] : [],
+              status: 'pending_review'
+            }).eq('id', productId).eq('seller_id', user.id);
+            if (error) throw error;
+            document.getElementById('seller-product-modal').classList.remove('show');
+            editForm.reset();
+            await load();
+          } catch (error) { statusEl.textContent = error.message || 'Could not save product.'; }
+          finally { button.disabled = false; }
+        });
+        document.getElementById('store-profile-form').addEventListener('submit', async event => {
+          event.preventDefault();
+          const button = event.submitter;
+          button.disabled = true;
+          try {
+            const values = new FormData(storeForm);
+            await OneSpeedBackend.updateSellerStoreProfile({
+              storeName: String(values.get('storeName')).trim(),
+              description: String(values.get('description')).trim(),
+              email: String(values.get('email')).trim(),
+              phone: String(values.get('phone')).trim(),
+              address: { store_address: String(values.get('storeAddress')).trim() }
+            });
+            document.getElementById('store-profile-status').textContent = 'Store profile saved.';
+          } catch (error) { document.getElementById('store-profile-status').textContent = error.message || 'Could not save store profile.'; }
+          finally { button.disabled = false; }
+        });
       } catch (error) {
         state.textContent = error.message || 'Unable to load seller centre';
       }
     })();
+
+    function renderSalesChart(items) {
+      const chart = document.getElementById('sales-chart');
+      const currencies = [...new Set(items.map(item => item.orders.currency.trim()))];
+      if (currencies.length > 1) {
+        chart.textContent = 'The selected records use multiple currencies. The chart is not combined across currencies.';
+        return;
+      }
+      const now = new Date();
+      const days = Array.from({ length: 30 }, (_, index) => {
+        const date = new Date(now);
+        date.setDate(now.getDate() - (29 - index));
+        date.setHours(0, 0, 0, 0);
+        return { date, amount: 0 };
+      });
+      const byDate = new Map(days.map(day => [day.date.toISOString().slice(0, 10), day]));
+      items.forEach(item => {
+        const key = new Date(item.orders.created_at).toISOString().slice(0, 10);
+        const day = byDate.get(key);
+        if (day) {
+          day.amount += Number(item.unit_price) * Number(item.quantity);
+        }
+      });
+      const max = Math.max(...days.map(day => day.amount), 0);
+      if (!max) {
+        chart.textContent = 'No paid order-item sales in this 30-day period.';
+        return;
+      }
+      const points = days.map((day, index) =>
+        `${(index / (days.length - 1)) * 700},${120 - (day.amount / max) * 100}`).join(' ');
+      chart.innerHTML = `<svg viewBox="0 0 700 150" role="img" aria-label="Daily paid order-item sales for the latest 30 days" class="sales-chart">
+        <line x1="0" y1="121" x2="700" y2="121" stroke="#d9ded7"/>
+        <polyline points="${points}" fill="none" stroke="#b88c2d" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg><div class="sales-chart-labels"><span>${days[0].date.toLocaleDateString()}</span><span>${days[days.length - 1].date.toLocaleDateString()}</span></div>`;
+    }
+
+    document.querySelectorAll('[data-close-product-modal]').forEach(button => button.addEventListener('click', () => {
+      document.getElementById('seller-product-modal').classList.remove('show');
+    }));
+    document.getElementById('seller-product-modal').addEventListener('click', event => {
+      if (event.target.id === 'seller-product-modal') event.currentTarget.classList.remove('show');
+    });
 
     function locationLink(address) {
       const latitude = Number(address.latitude);

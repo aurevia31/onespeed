@@ -7,6 +7,8 @@ services:
     environment:
       ONESPEED_SUPABASE_URL: ${ONESPEED_SUPABASE_URL:-}
       ONESPEED_SUPABASE_ANON_KEY: ${ONESPEED_SUPABASE_ANON_KEY:-}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1/"]
