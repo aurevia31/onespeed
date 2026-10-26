@@ -67,6 +67,25 @@ test('customer registration omits any client-selectable role', async () => {
   assert.equal(applicationRpc.args.p_address.store_address, 'Lagos');
 });
 
+test('missing Supabase auth session is treated as a signed-out visitor, while other auth errors propagate', async () => {
+  let authError = { name: 'AuthSessionMissingError', message: 'Auth session missing!' };
+  const window = {
+    ONESPEED_SUPABASE_CONFIG: { url: 'https://project.supabase.co', anonKey: 'public-anon-key' },
+    supabase: {
+      createClient() {
+        return { auth: { async getUser() { return { data: { user: null }, error: authError }; } } };
+      }
+    }
+  };
+  vm.runInNewContext(read('js/supabase.js'), { window });
+  assert.equal(await window.OneSpeedBackend.currentUser(), null);
+
+  authError = { message: 'Auth service unavailable', code: 'unexpected_failure' };
+  await assert.rejects(window.OneSpeedBackend.currentUser(), error => error.message === 'Auth service unavailable');
+  authError = { message: 'Auth session missing!', code: 'session_not_found' };
+  assert.equal(await window.OneSpeedBackend.currentUser(), null);
+});
+
 test('customer password recovery uses the same-origin reset route and updates through Supabase Auth', async () => {
   const calls = [];
   const window = {

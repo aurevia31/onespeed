@@ -14,6 +14,7 @@
     async currentUser() {
       if (!client) return null;
       const { data, error } = await client.auth.getUser();
+      if (error?.name === 'AuthSessionMissingError' || error?.code === 'session_not_found') return null;
       if (error) throw error;
       return data.user;
     },
