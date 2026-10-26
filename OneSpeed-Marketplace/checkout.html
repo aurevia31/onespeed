@@ -241,10 +241,12 @@
               });
               zoneAvailable = deliveryQuote.available;
               if (!zoneAvailable) {
-                OSM.toast(deliveryQuote.message || 'Delivery is not available for this address.');
+                throw new Error(deliveryQuote.message || 'Delivery is not available for this address.');
               }
             } catch (error) {
-              OSM.toast('Could not check delivery fees: ' + error.message);
+              OSM.toast('Could not confirm delivery: ' + error.message);
+              updateTotals();
+              throw error;
             }
           } else {
             zoneAvailable = true;

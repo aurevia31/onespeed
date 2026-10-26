@@ -62,20 +62,25 @@
     const confirmButton = form.querySelector('[data-confirm-delivery-address]');
     confirmButton.addEventListener('click', async () => {
       if (!form.reportValidity()) return;
+      if (confirmButton.disabled) return;
       const address = Object.fromEntries(fields
         .filter(name => controls[name])
         .map(name => [name, controls[name].value.trim()]));
       if (coordinates) Object.assign(address, coordinates);
-      confirmedAddress = address;
-      root.localStorage.setItem(STORAGE_KEY, JSON.stringify(address));
-      setMessage('Delivery address confirmed.');
-      if (onConfirm) {
-        try {
+      confirmButton.disabled = true;
+      try {
+        if (onConfirm) {
           await onConfirm({ ...address });
-        } catch (error) {
-          setMessage('Address was saved, but delivery fees could not be checked.', true);
-          console.error('OneSpeed: delivery address confirmation callback failed.', error);
         }
+        confirmedAddress = address;
+        root.localStorage.setItem(STORAGE_KEY, JSON.stringify(address));
+        setMessage('Delivery address confirmed.');
+      } catch (error) {
+        confirmedAddress = null;
+        setMessage('The delivery address could not be confirmed. Check delivery availability and try again.', true);
+        console.error('OneSpeed: delivery address confirmation callback failed.', error);
+      } finally {
+        confirmButton.disabled = false;
       }
     });
 

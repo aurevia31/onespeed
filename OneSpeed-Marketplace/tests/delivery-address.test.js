@@ -191,7 +191,7 @@ test('keeps manual confirmation available and reports map tile failures', async 
   assert.match(tileFailure.mapMessageElement.textContent, /tiles are temporarily unavailable/);
 });
 
-test('surfaces fee quote errors without leaving an unhandled confirmation rejection', async () => {
+test('does not confirm or persist an address when the fee quote fails', async () => {
   const storage = new MemoryStorage();
   const window = { localStorage: storage, setTimeout() {} };
   const errors = [];
@@ -202,15 +202,16 @@ test('surfaces fee quote errors without leaving an unhandled confirmation reject
   const { form, confirmButton } = addressForm();
   const statusElement = new Element();
   const mapMessageElement = new Element();
-  window.OneSpeedDeliveryAddress.init({
+  const controller = window.OneSpeedDeliveryAddress.init({
     form,
     statusElement,
     mapMessageElement,
     onConfirm: async () => { throw new Error('Delivery fee service unavailable'); }
   });
   await assert.doesNotReject(confirmButton.fire('click'));
-  assert.match(statusElement.textContent, /delivery fees could not be checked/);
-  assert.ok(storage.getItem('osm_delivery_address'));
+  assert.match(statusElement.textContent, /could not be confirmed/);
+  assert.equal(controller.getConfirmedAddress(), null);
+  assert.equal(storage.getItem('osm_delivery_address'), null);
   assert.equal(errors.length, 1);
 });
 
