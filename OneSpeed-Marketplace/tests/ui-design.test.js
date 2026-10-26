@@ -10,10 +10,31 @@ const read = file => fs.readFileSync(path.join(project, file), 'utf8');
 function htmlFiles(directory = project) {
   return fs.readdirSync(directory, { withFileTypes: true }).flatMap(entry => {
     const fullPath = path.join(directory, entry.name);
-    if (entry.isDirectory() && entry.name !== 'tests') return htmlFiles(fullPath);
+    if (entry.isDirectory() && !['tests', 'next-app'].includes(entry.name)) return htmlFiles(fullPath);
     return entry.isFile() && entry.name.endsWith('.html') ? [fullPath] : [];
   });
 }
+
+test('Next.js migration keeps legacy customer routes but does not publish protected admin pages', () => {
+  const packageJson = JSON.parse(read('next-app/package.json'));
+  const syncScript = read('next-app/scripts/sync-legacy-assets.mjs');
+  const dockerIgnore = read('.dockerignore');
+
+  assert.equal(packageJson.dependencies.next, '16.4.3');
+  assert.equal(packageJson.dependencies['@next/env'], '16.4.3');
+  assert.equal(packageJson.dependencies.react, '19.3.1');
+  assert.equal(packageJson.dependencies['react-dom'], '19.3.1');
+  assert.match(syncScript, /entry\.name\.endsWith\("\.html"\)/);
+  assert.match(syncScript, /\["assets", "css", "js"\]/);
+  assert.match(syncScript, /await rm\(path\.join\(publicDirectory, "admin"\)/);
+  assert.match(syncScript, /ONESPEED_SUPABASE_URL/);
+  assert.match(syncScript, /sb_secret_/);
+  assert.match(syncScript, /service_role/);
+  assert.match(dockerIgnore, /^next-app$/m);
+  for (const route of ['index.html', 'login.html', 'checkout.html', 'seller.html']) {
+    assert.ok(fs.existsSync(path.join(project, route)), `${route} should remain available in the legacy app`);
+  }
+});
 
 test('all customer, seller, auth, and admin pages use the shared design system', () => {
   const pages = htmlFiles();

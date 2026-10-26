@@ -10,6 +10,18 @@ python3 -m http.server 8080
 
 Open `http://localhost:8080`. Without Supabase configured, the original local demo mode remains for preview only. Do not publish or use demo/localStorage accounts for real customers.
 
+## Next.js migration (stage 1)
+
+The incremental Next.js app is in `next-app/`; the existing HTML/Nginx marketplace remains the production deployment while routes are migrated and parity is tested. To run the Next.js homepage and preserved legacy routes locally, use Node.js 20.9 or later:
+
+```bash
+cd next-app
+npm ci
+npm run dev
+```
+
+Open `http://localhost:3000`. The Next.js root route is the new marketplace landing page; existing storefront, customer, seller, and checkout HTML pages continue to be served from their existing `.html` paths. Those pages keep using the current browser Supabase bridge. Administrator pages are intentionally not mirrored into Next.js public assets because they currently rely on server-side Nginx authorization. The static production Docker image excludes `next-app/`, so the scaffold does not change Render's current production routing.
+
 ## Supabase setup
 
 1. Create a Supabase project and configure Authentication email confirmation, password rules, production Site URL, redirect URLs and SMTP.

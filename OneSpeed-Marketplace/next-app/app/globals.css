@@ -1,0 +1,267 @@
+:root {
+  color-scheme: light;
+  --forest: #123326;
+  --forest-deep: #081b14;
+  --gold: #c99b32;
+  --ink: #171b19;
+  --muted: #64716b;
+  --surface: #ffffff;
+  --page: #f5f7f5;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  min-width: 320px;
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  background: var(--page);
+  color: var(--ink);
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+a {
+  color: inherit;
+}
+
+a:focus-visible {
+  outline: 3px solid var(--gold);
+  outline-offset: 3px;
+}
+
+.site-header {
+  align-items: center;
+  background: var(--forest-deep);
+  color: white;
+  display: flex;
+  justify-content: space-between;
+  min-height: 76px;
+  padding: 0 clamp(20px, 6vw, 88px);
+}
+
+.brand {
+  align-items: center;
+  color: white;
+  display: inline-flex;
+  font-size: 1.15rem;
+  font-weight: 800;
+  gap: 10px;
+  letter-spacing: 0.04em;
+  text-decoration: none;
+}
+
+.brand-mark {
+  align-items: center;
+  border: 1px solid var(--gold);
+  border-radius: 50%;
+  color: var(--gold);
+  display: inline-flex;
+  height: 36px;
+  justify-content: center;
+  width: 36px;
+}
+
+.header-links {
+  align-items: center;
+  display: flex;
+  gap: 24px;
+}
+
+.header-links a {
+  color: #f2f4f2;
+  font-size: 0.95rem;
+  text-decoration: none;
+}
+
+.header-links a:hover {
+  color: var(--gold);
+}
+
+.header-links .sign-in {
+  border: 1px solid rgba(201, 155, 50, 0.8);
+  border-radius: 999px;
+  padding: 10px 16px;
+}
+
+.hero {
+  background:
+    radial-gradient(ellipse at 75% 15%, rgba(201, 155, 50, 0.15), transparent 38%),
+    linear-gradient(125deg, var(--forest-deep), var(--forest) 72%);
+  color: white;
+  padding: clamp(72px, 12vw, 144px) clamp(24px, 10vw, 150px);
+}
+
+.hero-content {
+  margin: 0 auto;
+  max-width: 1050px;
+}
+
+.eyebrow {
+  color: #e3c36f;
+  font-size: 0.8rem;
+  font-weight: 800;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.hero h1 {
+  font-size: clamp(2.6rem, 7vw, 5.2rem);
+  letter-spacing: -0.055em;
+  line-height: 1.02;
+  margin: 20px 0;
+  max-width: 850px;
+}
+
+.hero p {
+  color: #e0e7e2;
+  font-size: clamp(1.05rem, 2vw, 1.25rem);
+  line-height: 1.7;
+  margin: 0;
+  max-width: 620px;
+}
+
+.hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin-top: 32px;
+}
+
+.button {
+  align-items: center;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  display: inline-flex;
+  font-weight: 750;
+  justify-content: center;
+  min-height: 48px;
+  padding: 0 20px;
+  text-decoration: none;
+  transition: background-color 150ms ease, transform 150ms ease;
+}
+
+.button:hover {
+  transform: translateY(-1px);
+}
+
+.button-primary {
+  background: var(--gold);
+  color: #17140b;
+}
+
+.button-primary:hover {
+  background: #d7ad4c;
+}
+
+.button-secondary {
+  border-color: rgba(255, 255, 255, 0.55);
+  color: white;
+}
+
+.button-secondary:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.benefits {
+  display: grid;
+  gap: 18px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: -34px auto 0;
+  max-width: 1050px;
+  padding: 0 24px;
+  position: relative;
+}
+
+.benefit {
+  background: var(--surface);
+  border: 1px solid #e6ebe7;
+  border-radius: 12px;
+  box-shadow: 0 12px 32px rgba(8, 27, 20, 0.08);
+  padding: 22px;
+}
+
+.benefit h2 {
+  color: var(--forest);
+  font-size: 1rem;
+  margin: 0 0 8px;
+}
+
+.benefit p {
+  color: var(--muted);
+  font-size: 0.94rem;
+  line-height: 1.55;
+  margin: 0;
+}
+
+.transition-note {
+  color: var(--muted);
+  font-size: 0.88rem;
+  line-height: 1.55;
+  margin: 28px auto;
+  max-width: 1000px;
+  padding: 0 24px 24px;
+  text-align: center;
+}
+
+.site-footer {
+  background: var(--forest-deep);
+  color: #d9e0db;
+  font-size: 0.88rem;
+  padding: 24px;
+  text-align: center;
+}
+
+@media (max-width: 640px) {
+  .site-header {
+    min-height: 66px;
+    padding: 0 18px;
+  }
+
+  .brand {
+    font-size: 0.97rem;
+  }
+
+  .brand-mark {
+    height: 32px;
+    width: 32px;
+  }
+
+  .header-links {
+    gap: 12px;
+  }
+
+  .header-links a {
+    font-size: 0.85rem;
+  }
+
+  .header-links .seller-link {
+    display: none;
+  }
+
+  .header-links .sign-in {
+    padding: 8px 11px;
+  }
+
+  .hero {
+    padding: 74px 22px 76px;
+  }
+
+  .benefits {
+    grid-template-columns: 1fr;
+    margin-top: -26px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}
