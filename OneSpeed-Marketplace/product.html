@@ -161,6 +161,7 @@
               await OneSpeedBackend.setWishlisted(product.id, !isSaved);
               isSaved = !isSaved;
               wishlistButton.textContent = isSaved ? 'Remove from wishlist' : 'Save to wishlist';
+              window.dispatchEvent(new Event('onespeed:wishlist-updated'));
               OSM.toast(isSaved ? 'Saved to wishlist' : 'Removed from wishlist');
             } catch (error) {
               OSM.toast(error.message || 'Could not update wishlist');

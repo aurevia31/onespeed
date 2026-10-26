@@ -50,6 +50,149 @@ test('production Nginx sends baseline browser security headers without blocking 
   assert.match(nginx, /img-src 'self' data: blob: https:/);
 });
 
+test('public pages and shared navigation do not link to or reveal the administrator login', () => {
+  const publicPages = htmlFiles().filter(file => !file.startsWith(path.join(project, 'admin') + path.sep));
+  for (const page of publicPages) {
+    const source = fs.readFileSync(page, 'utf8');
+    assert.doesNotMatch(source, /href\s*=\s*["'][^"']*admin(?:\/|\.html)/i, `${path.relative(project, page)} must not link to admin`);
+    assert.doesNotMatch(source, /\/admin(?:\/|$)/i, `${path.relative(project, page)} must not expose an admin route`);
+    assert.doesNotMatch(source, /(?:Admin Login|Admin Dashboard|Administrator Login|Administrator\?)/i, `${path.relative(project, page)} must not advertise admin access`);
+    assert.doesNotMatch(source, /Pending Admin Approval|Admin note/i, `${path.relative(project, page)} must not surface internal admin labels`);
+  }
+  assert.doesNotMatch(read('js/app.js'), /href=["'][^"']*admin(?:\/|\.html)/i);
+  assert.doesNotMatch(read('login.html'), /admin\/login/i);
+});
+
+test('shared customer header and footer stay out of administrator layouts', () => {
+  const app = read('js/app.js');
+  assert.match(app, /function renderHeader\(sessionOverride\) \{\s*if \(document\.documentElement\.dataset\.adminAuth\) return;/);
+  assert.match(app, /function renderFooter\(\) \{\s*if \(document\.documentElement\.dataset\.adminAuth\) return;/);
+  assert.match(read('js/admin-auth.js'), /function ensureAdminHeader\(\)/);
+});
+
+test('mobile marketplace navigation exposes five working destinations and preserves signed-out redirects', () => {
+  const source = read('js/app.js');
+  const navFunction = source.match(/function renderMobileNavigation\(\) \{[\s\S]*?\n\}/)?.[0];
+  const stateFunction = source.match(/function getMobileNavState\(\) \{[\s\S]*?\n\}/)?.[0];
+  assert.ok(navFunction, 'mobile navigation renderer should exist');
+  assert.ok(stateFunction, 'active navigation state should be determined from the current route');
+  const render = (pathname, hash = '', session = null, isAdmin = false) => {
+    const elements = {};
+    let appended;
+    const context = vm.createContext({
+      document: {
+        documentElement: { dataset: isAdmin ? { adminAuth: 'checking' } : {} },
+        body: { classList: { add() {} }, append(node) { appended = node; } },
+        getElementById(id) {
+          if (id === 'market-mobile-nav') return appended?.id === id ? appended : null;
+          return { addEventListener() {} };
+        },
+        createElement() {
+          const node = {
+            querySelector() { return { href: '' }; },
+            setAttribute() {}
+          };
+          return node;
+        },
+        querySelector() { return null; }
+      },
+      window: { addEventListener() {} },
+      OSM: { getSession() { return session; } },
+      openMobileSearch() {},
+      location: { pathname, hash, search: '' },
+      URLSearchParams,
+      console
+    });
+    vm.runInContext(`${stateFunction}; ${navFunction}; globalThis.render = renderMobileNavigation;`, context);
+    context.render();
+    return appended;
+  };
+
+  const guest = render('/account.html');
+  assert.equal((guest.innerHTML.match(/class="mobile-nav-item/g) || []).length, 5);
+  assert.match(guest.innerHTML, /href="index\.html"/);
+  assert.match(guest.innerHTML, /href="index\.html#categories"/);
+  assert.match(guest.innerHTML, /id="mobile-search-open"/);
+  assert.match(guest.innerHTML, /href="login\.html\?redirect=wishlist\.html"/);
+  assert.match(guest.innerHTML, /id="mobile-account-link"[^>]+href="login\.html\?redirect=account\.html"/);
+  assert.match(guest.innerHTML, /aria-current="page"/);
+
+  const signedIn = render('/wishlist.html', '', { id: 'customer-1' });
+  assert.match(signedIn.innerHTML, /id="mobile-wishlist-link"[^>]+href="wishlist\.html"[^>]+aria-current="page"/);
+  const admin = render('/admin/index.html', '', null, true);
+  assert.equal(admin, undefined, 'public bottom navigation must not render on admin documents');
+});
+
+test('shared marketplace footer only links to implemented routes and avoids placeholder links', () => {
+  const source = read('js/app.js');
+  const footerFunction = source.match(/function renderFooter\(\) \{[\s\S]*?\n\}/)?.[0];
+  assert.ok(footerFunction, 'shared footer renderer should exist');
+  let footerHTML = '';
+  const context = vm.createContext({
+    document: {
+      documentElement: { dataset: {} },
+      getElementById() { return { set innerHTML(value) { footerHTML = value; } }; }
+    },
+    Date
+  });
+  vm.runInContext(`${footerFunction}; globalThis.render = renderFooter;`, context);
+  context.render();
+  assert.match(footerHTML, /OneSpeed Marketplace/);
+  assert.match(footerHTML, /Shop/);
+  assert.match(footerHTML, /Customer service/);
+  assert.match(footerHTML, /Your account/);
+  assert.match(footerHTML, /Sell on OneSpeed/);
+  assert.match(footerHTML, /About OneSpeed/);
+  assert.doesNotMatch(footerHTML, /href=["']#/);
+  assert.doesNotMatch(footerHTML, /\/admin(?:\/|$)/i);
+  for (const [, href] of footerHTML.matchAll(/href="([^"]+)"/g)) {
+    const route = href.split(/[?#]/, 1)[0];
+    if (route && !href.includes(':')) assert.ok(fs.existsSync(path.join(project, route)), `footer route ${route} should exist`);
+  }
+});
+
+test('cart and wishlist badges reflect the existing cart state and authenticated wishlist rows', async () => {
+  const source = read('js/app.js');
+  const cartFunction = source.match(/function updateCartBadge\(\) \{[\s\S]*?\n\}/)?.[0];
+  const wishlistFunction = source.match(/async function updateWishlistBadge\(signedIn\) \{[\s\S]*?\n\}/)?.[0];
+  assert.ok(cartFunction, 'shared cart badge updater should exist');
+  assert.ok(wishlistFunction, 'wishlist badge updater should exist');
+  const cart = { textContent: '', classList: { hidden: null, toggle(name, hidden) { this.hidden = hidden; } } };
+  const wishlist = { textContent: '', hidden: true, isConnected: true };
+  const context = vm.createContext({
+    document: { getElementById(id) { return id === 'cart-badge' ? cart : wishlist; } },
+    OSM: { getCartCount() { return 4; } },
+    window: { OneSpeedBackend: { configured() { return true; } } },
+    OneSpeedBackend: { async listWishlist() { return [{}, {}, {}]; } }
+  });
+  vm.runInContext(`${cartFunction}; ${wishlistFunction}; globalThis.updateCart = updateCartBadge; globalThis.updateWishlist = updateWishlistBadge;`, context);
+  context.updateCart();
+  await context.updateWishlist(true);
+  assert.equal(String(cart.textContent), '4');
+  assert.equal(cart.classList.hidden, false);
+  assert.equal(wishlist.textContent, '3');
+  assert.equal(wishlist.hidden, false);
+});
+
+test('mobile navigation respects safe-area insets, small screens, and accessible focus states', () => {
+  const styles = read('css/styles.css');
+  assert.match(styles, /\.mobile-bottom-nav\s*\{[\s\S]*?position:\s*fixed/);
+  assert.match(styles, /env\(safe-area-inset-bottom/);
+  assert.match(styles, /max-width:\s*360px[\s\S]*?\.mobile-nav-item/);
+  assert.match(styles, /mobile-nav-item:focus-visible/);
+  assert.match(styles, /body\.has-mobile-bottom-nav\s*\{[^}]*padding-bottom/);
+});
+
+test('Nginx protects all admin workspace routes and leaves only its login route public', () => {
+  const nginx = read('nginx.conf');
+  assert.match(nginx, /location = \/admin\/login \{[\s\S]*?try_files \/admin\/login\.html =404;/);
+  assert.match(nginx, /location \^~ \/admin\/ \{\s*auth_request \/_internal\/admin-authorize;/);
+  assert.match(nginx, /location = \/_internal\/admin-authorize \{\s*internal;/);
+  assert.match(nginx, /error_page 401 = @admin_login;/);
+  assert.match(nginx, /location = \/api\/admin\/logout/);
+  assert.match(nginx, /X-Robots-Tag "noindex, nofollow, noarchive"/);
+});
+
 test('production container generates Supabase client config before starting the app', () => {
   const dockerfile = read('Dockerfile');
   assert.match(dockerfile, /40-onespeed-supabase-config\.sh && exec node \/opt\/onespeed\/admin-auth-server\.js/);

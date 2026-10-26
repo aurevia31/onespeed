@@ -44,6 +44,7 @@
             remove.disabled = true;
             try {
               await OneSpeedBackend.setWishlisted(products[index].id, false);
+              window.dispatchEvent(new Event('onespeed:wishlist-updated'));
               await loadWishlist();
             } catch (error) {
               remove.disabled = false;

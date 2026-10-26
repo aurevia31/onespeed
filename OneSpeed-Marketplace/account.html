@@ -62,7 +62,7 @@
         orders = OSM.getUserOrders(session.id);
       }
       if (session.role === 'admin') {
-        location.href = 'admin/index.html';
+        location.replace('/');
         return;
       }
 
@@ -106,7 +106,7 @@
             ${user.createdAt ? `<p style="font-size:0.85rem;color:var(--text-light);margin-top:12px;">Member since ${new Date(user.createdAt).toLocaleDateString()}</p>` : ''}
           </div>
           <div>
-            <h3 class="section-title" style="font-size:1.2rem;">My Orders</h3>
+            <h3 class="section-title" id="orders" style="font-size:1.2rem;">My Orders</h3>
             ${ordersHTML}
           </div>
         </div>
@@ -114,11 +114,16 @@
           <section class="account-tools">
             <h2 class="section-title">Account services</h2>
             <div class="account-tools-grid">
+              <a class="card account-tool" href="cart.html"><strong>My cart</strong><span>Review items before checkout.</span></a>
+              <a class="card account-tool" href="track.html"><strong>Track an order</strong><span>Look up the latest order status.</span></a>
               <a class="card account-tool" href="wishlist.html"><strong>Wishlist</strong><span>Review products saved to your account.</span></a>
               <a class="card account-tool" href="addresses.html"><strong>Delivery addresses</strong><span>Manage private saved delivery details.</span></a>
               <a class="card account-tool" href="notifications.html"><strong>Notifications</strong><span>Order, seller application, payment, and support updates.</span></a>
               <a class="card account-tool" href="payment-history.html"><strong>Payment history</strong><span>View your bank-transfer submission status.</span></a>
               <a class="card account-tool" href="support.html"><strong>Customer support</strong><span>Open a support request and follow replies.</span></a>
+              <a class="card account-tool" href="reset-password.html"><strong>Security settings</strong><span>Request a secure password reset.</span></a>
+              ${sellerStatus === 'approved' ? '<a class="card account-tool" href="seller.html"><strong>Seller dashboard</strong><span>Manage your approved seller workspace.</span></a>' : sellerStatus === 'pending' ? '<a class="card account-tool" href="seller.html"><strong>Seller application status</strong><span>Check your application review status.</span></a>' : sellerStatus === 'rejected' ? '<a class="card account-tool" href="seller.html"><strong>Seller application</strong><span>Review feedback and resubmit your application.</span></a>' : '<a class="card account-tool" href="seller.html"><strong>Become a seller</strong><span>Apply to sell on OneSpeed Marketplace.</span></a>'}
+              <button class="card account-tool account-logout" type="button" onclick="logout()"><strong>Log out</strong><span>Securely end this session.</span></button>
             </div>
           </section>
         ` : ''}

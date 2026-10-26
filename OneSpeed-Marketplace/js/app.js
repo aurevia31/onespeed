@@ -1,12 +1,17 @@
 // OneSpeed Market - Shared UI & Navigation
 document.addEventListener('DOMContentLoaded', () => {
+  if (document.documentElement.dataset.adminAuth) return;
   renderHeader();
   renderFooter();
+  updateFooterAccountLink(Boolean(OSM.getSession()));
   updateCartBadge();
   setupCurrencySelector();
+  renderMobileNavigation();
+  handleMobileSearchRoute();
 });
 
 function renderHeader(sessionOverride) {
+  if (document.documentElement.dataset.adminAuth) return;
   const headerEl = document.getElementById('site-header');
   if (!headerEl) return;
 
@@ -22,7 +27,7 @@ function renderHeader(sessionOverride) {
   headerEl.innerHTML = `
     <div class="header-inner">
       <a href="index.html" class="logo" aria-label="OneSpeed Marketplace home"><img src="assets/images/onespeed-marketplace-brand.webp" alt="OneSpeed Marketplace" width="180" height="45"></a>
-      <div class="search-bar">
+      <div class="search-bar" id="search">
         <input type="text" id="search-input" placeholder="Search millions of products..." value="${getQueryParam('q') || ''}">
         <button onclick="doSearch()" aria-label="Search"><span class="search-glyph" aria-hidden="true"></span></button>
       </div>
@@ -35,7 +40,7 @@ function renderHeader(sessionOverride) {
           <span class="cart-count ${cartCount ? '' : 'hidden'}" id="cart-badge">${cartCount}</span>
         </a>
         ${session ? `
-          <a href="${session.role === 'admin' ? 'admin/index.html' : 'account.html'}" class="icon-btn" title="Account"><span class="account-glyph" aria-hidden="true"></span></a>
+          <a href="account.html" class="icon-btn" title="Account"><span class="account-glyph" aria-hidden="true"></span></a>
           <button class="btn btn-secondary btn-sm" onclick="logout()">Logout</button>
         ` : `
           <a href="login.html" class="btn btn-primary btn-sm">Login</a>
@@ -44,6 +49,7 @@ function renderHeader(sessionOverride) {
       </div>
     </div>
   `;
+  updateFooterAccountLink(Boolean(session));
 
   // Search on enter
   const searchInput = document.getElementById('search-input');
@@ -70,47 +76,182 @@ function renderHeader(sessionOverride) {
 }
 
 function renderFooter() {
+  if (document.documentElement.dataset.adminAuth) return;
   const footerEl = document.getElementById('site-footer');
   if (!footerEl) return;
   footerEl.innerHTML = `
     <div class="footer-inner">
-      <div>
-        <h4>OneSpeed Marketplace</h4>
-        <p style="font-size:0.9rem;line-height:1.6;color:#999;">Everything you need, all in one place. Premium marketplace with global shipping and multi-currency support.</p>
-        <p style="font-size:0.9rem;margin-top:12px;color:#ccc;">
-          <span class="footer-contact-icon" aria-hidden="true">TEL</span> <a href="tel:+12105047697" style="color:var(--primary);">+1 (210) 504-7697</a><br>
-          <span class="footer-contact-icon" aria-hidden="true">@</span> <a href="mailto:onespeedmail@gmail.com" style="color:var(--primary);">onespeedmail@gmail.com</a>
+      <section class="footer-brand">
+        <a href="index.html" class="footer-logo" aria-label="OneSpeed Marketplace home">
+          <img src="assets/images/onespeed-marketplace-brand.webp" alt="OneSpeed Marketplace" width="180" height="45" loading="lazy">
+        </a>
+        <p>Shop, discover, and connect with trusted sellers in one marketplace.</p>
+        <p class="footer-contact">
+          <a href="tel:+12105047697">+1 (210) 504-7697</a>
+          <a href="mailto:onespeedmail@gmail.com">onespeedmail@gmail.com</a>
         </p>
-      </div>
-      <div>
-        <h4>Shop</h4>
-        <a href="index.html">Marketplace</a>
-        <a href="index.html?cat=Electronics">Electronics</a>
-        <a href="index.html?cat=Fashion">Fashion</a>
-        <a href="index.html?cat=Home">Home & Living</a>
-        <a href="index.html?cat=Sports">Sports</a>
-      </div>
-      <div>
-        <h4>Customer</h4>
-        <a href="track.html">Track Order</a>
-        <a href="account.html">My Account</a>
-        <a href="delivery-address.html">Delivery Address</a>
-        <a href="cart.html">Cart</a>
-        <a href="login.html">Login / Register</a>
-      </div>
-      <div>
-        <h4>Support</h4>
-        <a href="contact.html">Contact Us</a>
-        <a href="contact.html">Help Center</a>
-        <a href="#">Shipping Policy</a>
-        <a href="#">Returns & Refunds</a>
-      </div>
+      </section>
+      <details class="footer-section" open>
+        <summary>Shop</summary>
+        <a href="index.html#products">All products</a>
+        <a href="index.html#categories">Categories</a>
+        <a href="index.html#products">Browse listings</a>
+        <a href="index.html#products">Shop by category</a>
+      </details>
+      <details class="footer-section" open>
+        <summary>Customer service</summary>
+        <a href="contact.html">Help & contact</a>
+        <a href="contact.html">Contact us</a>
+        <a href="track.html">Track order</a>
+        <a href="support.html">Customer support</a>
+        <a href="contact.html">Shipping, returns & refunds questions</a>
+      </details>
+      <details class="footer-section" open>
+        <summary>Your account</summary>
+        <a id="footer-account-link" href="login.html?redirect=account.html">Sign in</a>
+        <a href="account.html#orders">My orders</a>
+        <a href="wishlist.html">Wishlist</a>
+        <a href="addresses.html">Saved addresses</a>
+        <a href="cart.html">My cart</a>
+      </details>
+      <details class="footer-section" open>
+        <summary>Sell on OneSpeed</summary>
+        <a href="seller.html">Become a seller</a>
+        <a href="seller.html">Seller application</a>
+        <a href="contact.html">Seller help</a>
+      </details>
+      <details class="footer-section" open>
+        <summary>About OneSpeed</summary>
+        <a href="index.html">Our marketplace</a>
+        <a href="contact.html">Contact information</a>
+      </details>
     </div>
     <div class="footer-bottom">
-      © ${new Date().getFullYear()} OneSpeed Market. All rights reserved.<br>
-      Contact: +1 (210) 504-7697 · onespeedmail@gmail.com
+      <span>© ${new Date().getFullYear()} OneSpeed Marketplace. All rights reserved.</span>
+      <button class="back-to-top" type="button">Back to top ↑</button>
     </div>
   `;
+}
+
+function updateFooterAccountLink(signedIn) {
+  const link = document.getElementById('footer-account-link');
+  if (!link) return;
+  link.href = signedIn ? 'account.html' : `login.html?redirect=${encodeURIComponent('account.html')}`;
+  link.textContent = signedIn ? 'My account' : 'Sign in';
+}
+
+function renderMobileNavigation() {
+  if (document.documentElement.dataset.adminAuth || document.getElementById('market-mobile-nav')) return;
+  const signedIn = Boolean(OSM.getSession());
+  const accountHref = signedIn ? 'account.html' : `login.html?redirect=${encodeURIComponent('account.html')}`;
+  const wishlistHref = `login.html?redirect=${encodeURIComponent('wishlist.html')}`;
+  const active = getMobileNavState();
+  const nav = document.createElement('nav');
+  nav.id = 'market-mobile-nav';
+  nav.className = 'mobile-bottom-nav';
+  document.body.classList.add('has-mobile-bottom-nav');
+  nav.setAttribute('aria-label', 'Marketplace navigation');
+  nav.innerHTML = `
+    <a class="mobile-nav-item ${active === 'home' ? 'is-active' : ''}" href="index.html" ${active === 'home' ? 'aria-current="page"' : ''}>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1z"/></svg><span>Home</span>
+    </a>
+    <a class="mobile-nav-item ${active === 'categories' ? 'is-active' : ''}" href="index.html#categories" ${active === 'categories' ? 'aria-current="page"' : ''}>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg><span>Categories</span>
+    </a>
+    <button class="mobile-nav-item ${active === 'search' ? 'is-active' : ''}" id="mobile-search-open" type="button" aria-haspopup="dialog">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg><span>Search</span>
+    </button>
+    <a id="mobile-wishlist-link" class="mobile-nav-item ${active === 'wishlist' ? 'is-active' : ''}" href="${signedIn ? 'wishlist.html' : wishlistHref}" ${active === 'wishlist' ? 'aria-current="page"' : ''}>
+      <span class="mobile-nav-icon-wrap"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8l1.1 1.1L12 21l7.8-7.5 1.1-1.1a5.5 5.5 0 0 0-.1-7.8Z"/></svg><span id="wishlist-nav-count" class="mobile-nav-badge" hidden></span></span><span>Wishlist</span>
+    </a>
+    <a id="mobile-account-link" class="mobile-nav-item ${active === 'account' ? 'is-active' : ''}" href="${accountHref}" ${active === 'account' ? 'aria-current="page"' : ''}>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M5 21v-2a7 7 0 0 1 14 0v2"/></svg><span>Account</span>
+    </a>`;
+  document.body.append(nav);
+  document.getElementById('mobile-search-open').addEventListener('click', openMobileSearch);
+  document.querySelector('.back-to-top')?.addEventListener('click', () => window.scrollTo({ top: 0, behavior: 'smooth' }));
+  window.addEventListener('onespeed:wishlist-updated', () => {
+    const isAuthenticated = Boolean(OSM.getSession());
+    if (window.OneSpeedBackend?.configured()) {
+      OneSpeedBackend.currentUser().then(user => updateWishlistBadge(Boolean(user)))
+        .catch(error => console.error('OneSpeed: could not refresh mobile wishlist count.', error));
+    } else updateWishlistBadge(isAuthenticated);
+  });
+
+  if (window.OneSpeedBackend?.configured()) {
+    OneSpeedBackend.currentUser().then(async user => {
+      const profile = user ? await OneSpeedBackend.profile() : null;
+      const authenticated = Boolean(profile?.is_active && profile.role !== 'admin');
+      const accountLink = nav.querySelector('#mobile-account-link');
+      const wishlistLink = nav.querySelector('#mobile-wishlist-link');
+      if (accountLink) accountLink.href = authenticated ? 'account.html' : `login.html?redirect=${encodeURIComponent('account.html')}`;
+      if (wishlistLink) wishlistLink.href = authenticated ? 'wishlist.html' : wishlistHref;
+      updateWishlistBadge(authenticated);
+    }).catch(error => console.error('OneSpeed: could not load mobile wishlist count.', error));
+  }
+}
+
+function getMobileNavState() {
+  const path = location.pathname.split('/').pop() || 'index.html';
+  if (path === 'wishlist.html') return 'wishlist';
+  if (path === 'account.html') return 'account';
+  if (path === 'index.html' || !path) {
+    if (location.hash === '#categories') return 'categories';
+    if (location.hash === '#search' || getQueryParam('q')) return 'search';
+    return 'home';
+  }
+  return '';
+}
+
+async function updateWishlistBadge(signedIn) {
+  const badge = document.getElementById('wishlist-nav-count');
+  if (!badge || !signedIn || !window.OneSpeedBackend?.configured()) return;
+  try {
+    const rows = await OneSpeedBackend.listWishlist();
+    if (badge.isConnected && rows.length) {
+      badge.textContent = rows.length > 99 ? '99+' : String(rows.length);
+      badge.hidden = false;
+    }
+  } catch (error) {
+    console.error('OneSpeed: could not refresh mobile wishlist count.', error);
+  }
+}
+
+function openMobileSearch() {
+  let dialog = document.getElementById('mobile-search-dialog');
+  if (!dialog) {
+    dialog = document.createElement('dialog');
+    dialog.id = 'mobile-search-dialog';
+    dialog.className = 'mobile-search-dialog';
+    dialog.setAttribute('aria-labelledby', 'mobile-search-title');
+    dialog.innerHTML = `
+      <form method="dialog" class="mobile-search-dismiss"><button type="submit" aria-label="Close search">×</button></form>
+      <h2 id="mobile-search-title">Search OneSpeed</h2>
+      <form id="mobile-search-form" role="search">
+        <label class="visually-hidden" for="mobile-search-input">Search products</label>
+        <input id="mobile-search-input" type="search" name="q" class="form-control" placeholder="What are you looking for?" required>
+        <button class="btn btn-primary" type="submit">Search</button>
+      </form>`;
+    document.body.append(dialog);
+    dialog.addEventListener('click', event => {
+      if (event.target === dialog) dialog.close();
+    });
+    dialog.querySelector('#mobile-search-form').addEventListener('submit', event => {
+      event.preventDefault();
+      const query = dialog.querySelector('#mobile-search-input').value.trim();
+      if (query) location.href = `index.html?q=${encodeURIComponent(query)}#products`;
+    });
+  }
+  dialog.showModal();
+  dialog.querySelector('#mobile-search-input').focus();
+}
+
+function handleMobileSearchRoute() {
+  if (location.hash === '#search') {
+    openMobileSearch();
+  } else if (location.hash === '#categories') {
+    document.getElementById('categories')?.scrollIntoView({ behavior: 'smooth' });
+  }
 }
 
 function updateCartBadge() {

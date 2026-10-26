@@ -7,6 +7,7 @@ const http = require('node:http');
 const WINDOW_MS = 15 * 60 * 1000;
 const MAX_ATTEMPTS = 5;
 const MAX_BODY_BYTES = 4096;
+const ADMIN_COOKIE = '__Host-onespeed_admin_session';
 
 function secureEqual(left, right) {
   const leftHash = crypto.createHash('sha256').update(String(left)).digest();
@@ -64,6 +65,32 @@ function isSameOrigin(request) {
   }
 }
 
+function supabaseConfig(env) {
+  return {
+    url: (env.ONESPEED_SUPABASE_URL || env.SUPABASE_URL || env.NEXT_PUBLIC_SUPABASE_URL)?.trim(),
+    anonKey: (env.ONESPEED_SUPABASE_ANON_KEY
+      || env.SUPABASE_PUBLISHABLE_KEY
+      || env.SUPABASE_ANON_KEY
+      || env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
+      || env.NEXT_PUBLIC_SUPABASE_ANON_KEY)?.trim()
+  };
+}
+
+function getCookie(request, name) {
+  const cookieHeader = request.headers.cookie || '';
+  for (const cookie of cookieHeader.split(';')) {
+    const separator = cookie.indexOf('=');
+    if (separator < 0 || cookie.slice(0, separator).trim() !== name) continue;
+    return cookie.slice(separator + 1).trim();
+  }
+  return null;
+}
+
+function setAdminCookie(response, token, maxAge) {
+  response.setHeader('Set-Cookie',
+    `${ADMIN_COOKIE}=${encodeURIComponent(token)}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=${maxAge}`);
+}
+
 function createAdminAuthServer({
   env = process.env,
   fetchImpl = fetch,
@@ -73,7 +100,77 @@ function createAdminAuthServer({
 } = {}) {
   const attempts = new Map();
   return http.createServer(async (request, response) => {
-    if (request.url !== '/api/admin/login') {
+    const pathname = new URL(request.url, 'http://localhost').pathname;
+    if (pathname === '/api/admin/logout') {
+      if (request.method !== 'POST') {
+        response.setHeader('Allow', 'POST');
+        send(response, 405, { error: 'Method not allowed.' });
+        return;
+      }
+      if (!isSameOrigin(request)) {
+        send(response, 403, { error: 'Unable to sign out.' });
+        return;
+      }
+      response.writeHead(204, {
+        'Cache-Control': 'no-store',
+        'Set-Cookie': `${ADMIN_COOKIE}=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0`
+      });
+      response.end();
+      return;
+    }
+    const { url: supabaseUrl, anonKey } = supabaseConfig(env);
+    if (pathname === '/api/admin/authorize') {
+      if (request.method !== 'GET') {
+        response.setHeader('Allow', 'GET');
+        send(response, 405, { error: 'Method not allowed.' });
+        return;
+      }
+      const token = getCookie(request, ADMIN_COOKIE);
+      if (!token || !supabaseUrl || !anonKey) {
+        send(response, 401, { error: 'Unauthorized.' });
+        return;
+      }
+      try {
+        const authResponse = await fetchImpl(new URL('/auth/v1/user', supabaseUrl), {
+          headers: { apikey: anonKey, Authorization: `Bearer ${decodeURIComponent(token)}` },
+          signal: AbortSignal.timeout(10000)
+        });
+        if (!authResponse.ok) {
+          send(response, 401, { error: 'Unauthorized.' });
+          return;
+        }
+        const user = await authResponse.json();
+        if (!user?.id) {
+          send(response, 401, { error: 'Unauthorized.' });
+          return;
+        }
+        const profileUrl = new URL('/rest/v1/profiles', supabaseUrl);
+        profileUrl.search = new URLSearchParams({
+          id: `eq.${user.id}`,
+          select: 'role,is_active'
+        }).toString();
+        const profileResponse = await fetchImpl(profileUrl, {
+          headers: { apikey: anonKey, Authorization: `Bearer ${decodeURIComponent(token)}` },
+          signal: AbortSignal.timeout(10000)
+        });
+        if (!profileResponse.ok) {
+          send(response, 401, { error: 'Unauthorized.' });
+          return;
+        }
+        const profiles = await profileResponse.json();
+        if (!Array.isArray(profiles) || profiles.length !== 1
+          || profiles[0].role !== 'admin' || profiles[0].is_active !== true) {
+          send(response, 401, { error: 'Unauthorized.' });
+          return;
+        }
+        response.writeHead(204, { 'Cache-Control': 'no-store' });
+        response.end();
+      } catch {
+        send(response, 503, { error: 'Administrator authorization is unavailable.' });
+      }
+      return;
+    }
+    if (pathname !== '/api/admin/login') {
       send(response, 404, { error: 'Not found.' });
       return;
     }
@@ -110,12 +207,6 @@ function createAdminAuthServer({
 
     const adminEmail = env.ADMIN_EMAIL?.trim();
     const adminPassword = env.ADMIN_PASSWORD;
-    const supabaseUrl = (env.ONESPEED_SUPABASE_URL || env.SUPABASE_URL || env.NEXT_PUBLIC_SUPABASE_URL)?.trim();
-    const anonKey = (env.ONESPEED_SUPABASE_ANON_KEY
-      || env.SUPABASE_PUBLISHABLE_KEY
-      || env.SUPABASE_ANON_KEY
-      || env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
-      || env.NEXT_PUBLIC_SUPABASE_ANON_KEY)?.trim();
     if (!adminEmail || !adminPassword || adminPassword.length < 16 || !supabaseUrl || !anonKey) {
       send(response, 503, { error: 'Administrator sign-in is not configured.' });
       return;
@@ -189,6 +280,7 @@ function createAdminAuthServer({
       }
 
       attempts.delete(address);
+      setAdminCookie(response, session.access_token, Math.max(60, Math.min(Number(session.expires_in) || 3600, 86400)));
       send(response, 200, {
         access_token: session.access_token,
         refresh_token: session.refresh_token,

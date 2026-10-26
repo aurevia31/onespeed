@@ -1,5 +1,5 @@
 (function () {
-  const loginUrl = '/admin/login.html';
+  const loginUrl = '/admin/login';
   const redirectToLogin = () => {
     const requested = `${location.pathname}${location.search}`;
     location.replace(`${loginUrl}?redirect=${encodeURIComponent(requested)}`);
@@ -48,6 +48,21 @@
     main.classList.add('admin-content');
   }
 
+  function ensureAdminHeader() {
+    const header = document.querySelector('.header');
+    if (!header || header.querySelector('.header-inner')) return;
+    header.innerHTML = `
+      <div class="header-inner">
+        <a href="/admin/" class="logo" aria-label="OneSpeed administrator workspace">
+          <img src="/assets/images/onespeed-marketplace-brand.webp" alt="OneSpeed Marketplace" width="180" height="45">
+        </a>
+        <div class="nav-actions">
+          <button class="btn btn-primary btn-sm" data-admin-logout type="button">Logout</button>
+        </div>
+      </div>`;
+    header.querySelector('[data-admin-logout]').addEventListener('click', window.adminLogout);
+  }
+
   window.OneSpeedAdmin = {
     ready: (async () => {
       document.documentElement.dataset.adminAuth = 'checking';
@@ -62,6 +77,7 @@
           redirectToLogin();
           return null;
         }
+        ensureAdminHeader();
         const actions = document.querySelector('.header .nav-actions');
         if (actions && !actions.querySelector('[data-admin-logout]')) {
           const button = document.createElement('button');
@@ -86,8 +102,10 @@
 window.adminLogout = async function () {
   try {
     await window.OneSpeedBackend?.signOut();
+    const response = await fetch('/api/admin/logout', { method: 'POST', credentials: 'same-origin' });
+    if (!response.ok) throw new Error('Could not clear the administrator session.');
     window.OSM?.logout();
-    location.replace('/admin/login.html');
+    location.replace('/admin/login');
   } catch (error) {
     console.error('Administrator sign-out failed.', error);
     alert('Could not sign out. Please try again.');

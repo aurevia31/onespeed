@@ -60,7 +60,7 @@
           const user = await OneSpeedBackend.currentUser();
           const profile = user ? await OneSpeedBackend.profile() : null;
           if (!profile || profile.role !== 'admin' || !profile.is_active) {
-            location.href = '/admin/login.html?redirect=%2Fadmin%2Findex.html';
+            location.href = '/admin/login?redirect=%2Fadmin%2F';
             return;
           }
           await renderSupabaseDashboard();
@@ -70,7 +70,7 @@
         return;
       }
 
-      location.href = '/admin/login.html';
+      location.href = '/admin/login';
     }
 
     function renderStats({ products, orders, pendingOrders, revenue, pendingUsers, revenueCurrency, customers, sellers, productReviews, pendingTransfers, openSupport }) {

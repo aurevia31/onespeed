@@ -261,7 +261,7 @@
           const user = await OneSpeedBackend.currentUser();
           const profile = user ? await OneSpeedBackend.profile() : null;
           if (!profile || profile.role !== 'admin' || !profile.is_active) {
-            location.href = '/admin/login.html?redirect=%2Fadmin%2Forders.html';
+            location.href = '/admin/login?redirect=%2Fadmin%2Forders.html';
             return;
           }
         } catch (error) {
@@ -270,7 +270,7 @@
           return;
         }
       } else {
-        location.href = '/admin/login.html';
+        location.href = '/admin/login';
         return;
       }
       await renderOrders();

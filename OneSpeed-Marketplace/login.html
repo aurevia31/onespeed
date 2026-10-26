@@ -26,7 +26,6 @@
         </form>
         <p class="text-center mt-2" style="font-size:0.9rem;"><a href="reset-password.html" style="color:var(--primary-dark);font-weight:700;">Forgot your password?</a></p>
         <p class="text-center mt-3" style="font-size:0.9rem;">Don't have an account? <a href="register.html" style="color:var(--primary-dark);font-weight:700;">Sign Up</a></p>
-        <p class="text-center mt-2" style="font-size:0.9rem;">Administrator? <a href="admin/login.html" style="color:var(--primary-dark);font-weight:700;">Admin login</a></p>
         <p id="auth-mode-note" class="text-center mt-3" style="font-size:0.8rem;color:var(--text-light);">Sign in securely to access your account.</p>
       </div>
     </div>
@@ -52,7 +51,7 @@
           }
           if (profile.role === 'admin') {
             await OneSpeedBackend.signOut();
-            throw new Error('Use the administrator login page.');
+            throw new Error('Unable to sign in. Check your account and try again.');
           }
           OSM.toast('Welcome back!');
           const fallback = profile.role === 'seller' ? 'seller.html' : 'index.html';

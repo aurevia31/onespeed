@@ -125,7 +125,11 @@ test('standard Supabase environment aliases keep server-verified admin login fun
     t.after(server.close);
     const response = await fetch(server.url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        Origin: `https://${new URL(server.url).host}`,
+        'X-Forwarded-Proto': 'https'
+      },
       body: JSON.stringify({ email: env.ADMIN_EMAIL, password: env.ADMIN_PASSWORD })
     });
     assert.equal(response.status, 200);
@@ -177,7 +181,11 @@ test('admin login endpoint only returns a verified Supabase admin session', asyn
 
   const response = await fetch(server.url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      Origin: `https://${new URL(server.url).host}`,
+      'X-Forwarded-Proto': 'https'
+    },
     body: JSON.stringify({ email: env.ADMIN_EMAIL, password: env.ADMIN_PASSWORD })
   });
   const payload = await response.json();
@@ -185,8 +193,57 @@ test('admin login endpoint only returns a verified Supabase admin session', asyn
   assert.equal(payload.access_token, 'access-session-token');
   assert.equal(payload.refresh_token, 'refresh-session-token');
   assert.equal(Object.hasOwn(payload, 'password'), false);
+  assert.match(response.headers.get('set-cookie'), /__Host-onespeed_admin_session=.*HttpOnly.*Secure.*SameSite=Strict/);
   assert.equal(calls.length, 2);
   assert.match(calls[1].options.headers.Authorization, /^Bearer access-session-token$/);
+});
+
+test('admin page authorization validates the HttpOnly session against Supabase and clears it on logout', async t => {
+  const calls = [];
+  let profileRole = 'admin';
+  const server = await startAdminAuthServer({
+    env,
+    fetchImpl: async (url, options) => {
+      calls.push({ url: String(url), options });
+      if (String(url).includes('/auth/v1/user')) {
+        return new Response(JSON.stringify({ id: 'admin-user-id' }), { status: 200 });
+      }
+      return new Response(JSON.stringify([{ role: profileRole, is_active: true }]), { status: 200 });
+    }
+  });
+  t.after(server.close);
+  const authorizationUrl = server.url.replace('/api/admin/login', '/api/admin/authorize');
+  const authorized = await fetch(authorizationUrl, {
+    headers: { Cookie: 'other=value; __Host-onespeed_admin_session=verified-access-token' }
+  });
+  assert.equal(authorized.status, 204);
+  assert.equal(calls.length, 2);
+  assert.match(calls[0].options.headers.Authorization, /^Bearer verified-access-token$/);
+  assert.match(calls[1].options.headers.Authorization, /^Bearer verified-access-token$/);
+
+  profileRole = 'customer';
+  const customer = await fetch(authorizationUrl, {
+    headers: { Cookie: '__Host-onespeed_admin_session=valid-customer-token' }
+  });
+  assert.equal(customer.status, 401);
+  assert.equal(calls.length, 4);
+
+  profileRole = 'seller';
+  const seller = await fetch(authorizationUrl, {
+    headers: { Cookie: '__Host-onespeed_admin_session=valid-seller-token' }
+  });
+  assert.equal(seller.status, 401);
+  assert.equal(calls.length, 6);
+
+  const rejected = await fetch(authorizationUrl);
+  assert.equal(rejected.status, 401);
+  assert.equal(calls.length, 6);
+
+  const logout = await fetch(server.url.replace('/api/admin/login', '/api/admin/logout'), {
+    method: 'POST'
+  });
+  assert.equal(logout.status, 204);
+  assert.match(logout.headers.get('set-cookie'), /__Host-onespeed_admin_session=;.*Secure.*SameSite=Strict.*Max-Age=0/);
 });
 
 test('admin login refuses a valid Supabase account without the administrator profile role', async t => {

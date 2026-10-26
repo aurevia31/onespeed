@@ -47,7 +47,7 @@
           <p style="color:var(--text-light);margin:12px 0;">Thank you for shopping with OneSpeed Market.</p>
           <div class="card" style="padding:20px;margin:20px 0;text-align:left;background:linear-gradient(145deg,#f0e8d8,#e8e0d0);">
             <p><strong>Order ID:</strong> #${remoteOrder ? order.order_number : order.id}</p>
-            <p><strong>Status:</strong> <span class="status status-pending">${remoteOrder ? order.status.replaceAll('_', ' ') : 'Pending Admin Approval'}</span></p>
+            <p><strong>Status:</strong> <span class="status status-pending">${remoteOrder ? order.status.replaceAll('_', ' ') : 'Pending review'}</span></p>
             <p><strong>Total:</strong> ${remoteOrder ? `${order.currency} ${Number(order.total).toFixed(2)}` : OSM.formatPrice(order.total)}</p>
             <p><strong>Tracking:</strong> Will be provided after confirmation</p>
             <p style="font-size:0.85rem;color:var(--text-light);margin-top:8px;">You will receive updates once the admin approves and ships your order.</p>
