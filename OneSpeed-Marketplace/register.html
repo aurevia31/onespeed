@@ -61,7 +61,8 @@
             name: String(fd.get('name')).trim(),
             email: String(fd.get('email')).trim(),
             phone: String(fd.get('phone') || '').trim(),
-            password: String(fd.get('password'))
+            password: String(fd.get('password')),
+            emailRedirectTo: `${location.origin}/login.html`
           });
           if (result.session) {
             OSM.toast('Account created. You can start shopping now.');

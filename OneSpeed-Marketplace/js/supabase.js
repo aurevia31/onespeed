@@ -17,11 +17,14 @@
       if (error) throw error;
       return data.user;
     },
-    async signUp({ email, password, name, phone }) {
+    async signUp({ email, password, name, phone, emailRedirectTo }) {
       if (!client) throw new Error('Supabase is not configured. Add the project URL and anon key in js/supabase-config.js.');
       const { data, error } = await client.auth.signUp({
         email, password,
-        options: { data: { full_name: name, phone: phone || '' } }
+        options: {
+          data: { full_name: name, phone: phone || '' },
+          ...(emailRedirectTo ? { emailRedirectTo } : {})
+        }
       });
       if (error) throw error;
       return data;
@@ -53,6 +56,19 @@
     async signIn(email, password) {
       if (!client) throw new Error('Supabase is not configured. Add the project URL and anon key in js/supabase-config.js.');
       const { data, error } = await client.auth.signInWithPassword({ email, password });
+      if (error) throw error;
+      return data;
+    },
+    async requestPasswordReset(email, redirectTo) {
+      if (!client) throw new Error('Supabase is not configured.');
+      const { error } = await client.auth.resetPasswordForEmail(email, {
+        redirectTo: redirectTo || `${window.location.origin}/reset-password.html`
+      });
+      if (error) throw error;
+    },
+    async updatePassword(password) {
+      if (!client) throw new Error('Supabase is not configured.');
+      const { data, error } = await client.auth.updateUser({ password });
       if (error) throw error;
       return data;
     },

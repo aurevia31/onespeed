@@ -35,4 +35,4 @@ HEALTHCHECK --interval=30s --timeout=3s --retries=3 \
 
 EXPOSE 80
 
-CMD ["node", "/opt/onespeed/admin-auth-server.js"]
+CMD ["sh", "-c", "/docker-entrypoint.d/40-onespeed-supabase-config.sh && exec node /opt/onespeed/admin-auth-server.js"]

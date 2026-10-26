@@ -46,12 +46,14 @@ test('customer registration omits any client-selectable role', async () => {
     email: 'customer@example.test',
     password: 'customer-password',
     name: 'New Customer',
+    emailRedirectTo: 'https://onespeed.example/login.html',
     role: 'admin'
   });
   assert.deepEqual(JSON.parse(JSON.stringify(signupArgs.options.data)), {
     full_name: 'New Customer',
     phone: ''
   });
+  assert.equal(signupArgs.options.emailRedirectTo, 'https://onespeed.example/login.html');
   assert.doesNotMatch(read('register.html'), /name="accountType"/);
   await window.OneSpeedBackend.applySellerApplication({
     storeName: 'Forest Goods',
@@ -63,6 +65,83 @@ test('customer registration omits any client-selectable role', async () => {
   assert.equal(applicationRpc.name, 'apply_seller_application');
   assert.equal(applicationRpc.args.p_store_name, 'Forest Goods');
   assert.equal(applicationRpc.args.p_address.store_address, 'Lagos');
+});
+
+test('customer password recovery uses the same-origin reset route and updates through Supabase Auth', async () => {
+  const calls = [];
+  const window = {
+    location: { origin: 'https://onespeed.example' },
+    ONESPEED_SUPABASE_CONFIG: { url: 'https://project.supabase.co', anonKey: 'public-anon-key' },
+    supabase: {
+      createClient() {
+        return {
+          auth: {
+            async resetPasswordForEmail(email, options) {
+              calls.push({ method: 'resetPasswordForEmail', email, options });
+              return { error: null };
+            },
+            async updateUser(attributes) {
+              calls.push({ method: 'updateUser', attributes });
+              return { data: { user: { id: 'customer-id' } }, error: null };
+            }
+          }
+        };
+      }
+    }
+  };
+  vm.runInNewContext(read('js/supabase.js'), { window });
+  await window.OneSpeedBackend.requestPasswordReset('customer@example.test');
+  await window.OneSpeedBackend.updatePassword('new-customer-password');
+  assert.deepEqual(JSON.parse(JSON.stringify(calls)), [
+    {
+      method: 'resetPasswordForEmail',
+      email: 'customer@example.test',
+      options: { redirectTo: 'https://onespeed.example/reset-password.html' }
+    },
+    { method: 'updateUser', attributes: { password: 'new-customer-password' } }
+  ]);
+});
+
+test('standard Supabase environment aliases keep server-verified admin login functional', async t => {
+  const { ONESPEED_SUPABASE_URL, ONESPEED_SUPABASE_ANON_KEY, ...standardEnv } = env;
+  const aliasSets = [
+    { SUPABASE_URL: ONESPEED_SUPABASE_URL, SUPABASE_ANON_KEY: ONESPEED_SUPABASE_ANON_KEY },
+    {
+      NEXT_PUBLIC_SUPABASE_URL: ONESPEED_SUPABASE_URL,
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ONESPEED_SUPABASE_ANON_KEY
+    }
+  ];
+  for (const aliases of aliasSets) {
+    const server = await startAdminAuthServer({
+      env: { ...standardEnv, ...aliases },
+      fetchImpl: async url => String(url).includes('/auth/v1/token')
+        ? new Response(JSON.stringify({
+            access_token: 'access-session-token',
+            refresh_token: 'refresh-session-token',
+            user: { id: 'admin-user-id', email: env.ADMIN_EMAIL }
+          }), { status: 200 })
+        : new Response(JSON.stringify([{ role: 'admin', is_active: true }]), { status: 200 })
+    });
+    t.after(server.close);
+    const response = await fetch(server.url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: env.ADMIN_EMAIL, password: env.ADMIN_PASSWORD })
+    });
+    assert.equal(response.status, 200);
+  }
+});
+
+test('customer recovery is linked from customer login and does not disclose account existence', () => {
+  assert.match(read('login.html'), /href="reset-password\.html"/);
+  const recovery = read('reset-password.html');
+  const bridge = read('js/supabase.js');
+  assert.match(recovery, /If an account can be recovered with that email, a reset link will be sent/);
+  assert.match(recovery, /backend\.requestPasswordReset/);
+  assert.match(recovery, /backend\.updatePassword/);
+  assert.match(bridge, /auth\.resetPasswordForEmail/);
+  assert.match(bridge, /auth\.updateUser\(\{ password \}\)/);
+  assert.match(recovery, /role="status" aria-live="polite"/);
 });
 
 test('customer login redirects are restricted to the same origin', () => {

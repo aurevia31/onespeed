@@ -17,7 +17,7 @@ function htmlFiles(directory = project) {
 
 test('all customer, seller, auth, and admin pages use the shared design system', () => {
   const pages = htmlFiles();
-  assert.equal(pages.length, 28);
+  assert.equal(pages.length, 29);
 
   for (const page of pages) {
     const source = fs.readFileSync(page, 'utf8');
@@ -48,6 +48,11 @@ test('production Nginx sends baseline browser security headers without blocking 
   assert.match(nginx, /https:\/\/cdn\.jsdelivr\.net/);
   assert.match(nginx, /https:\/\/unpkg\.com/);
   assert.match(nginx, /img-src 'self' data: blob: https:/);
+});
+
+test('production container generates Supabase client config before starting the app', () => {
+  const dockerfile = read('Dockerfile');
+  assert.match(dockerfile, /40-onespeed-supabase-config\.sh && exec node \/opt\/onespeed\/admin-auth-server\.js/);
 });
 
 test('catalog filters are wired and product metrics are not fabricated', () => {

@@ -1,8 +1,8 @@
 #!/bin/sh
 set -eu
 
-url=${ONESPEED_SUPABASE_URL:-}
-anon_key=${ONESPEED_SUPABASE_ANON_KEY:-}
+url=${ONESPEED_SUPABASE_URL:-${SUPABASE_URL:-${NEXT_PUBLIC_SUPABASE_URL:-}}}
+anon_key=${ONESPEED_SUPABASE_ANON_KEY:-${SUPABASE_PUBLISHABLE_KEY:-${SUPABASE_ANON_KEY:-${NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY:-${NEXT_PUBLIC_SUPABASE_ANON_KEY:-}}}}}
 
 if [ -z "$url" ] && [ -z "$anon_key" ]; then
   echo "OneSpeed: Supabase environment variables are not set; running in demo mode."
@@ -21,6 +21,12 @@ case "$url" in
     exit 1
     ;;
 esac
+case "$url" in
+  *YOUR-PROJECT*|*example.com*)
+    echo "OneSpeed: replace the Supabase URL placeholder with the configured project URL." >&2
+    exit 1
+    ;;
+esac
 
 case "$url" in
   *[!a-zA-Z0-9:/._-]*)
@@ -32,6 +38,12 @@ esac
 case "$anon_key" in
   sb_secret_*|*[!a-zA-Z0-9._-]*)
     echo "OneSpeed: ONESPEED_SUPABASE_ANON_KEY must be a public anon/publishable key, not a secret key." >&2
+    exit 1
+    ;;
+esac
+case "$anon_key" in
+  YOUR_*|replace-with-*|change-me*)
+    echo "OneSpeed: replace the Supabase key placeholder with a public anon/publishable key." >&2
     exit 1
     ;;
 esac

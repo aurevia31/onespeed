@@ -110,8 +110,12 @@ function createAdminAuthServer({
 
     const adminEmail = env.ADMIN_EMAIL?.trim();
     const adminPassword = env.ADMIN_PASSWORD;
-    const supabaseUrl = env.ONESPEED_SUPABASE_URL?.trim();
-    const anonKey = env.ONESPEED_SUPABASE_ANON_KEY?.trim();
+    const supabaseUrl = (env.ONESPEED_SUPABASE_URL || env.SUPABASE_URL || env.NEXT_PUBLIC_SUPABASE_URL)?.trim();
+    const anonKey = (env.ONESPEED_SUPABASE_ANON_KEY
+      || env.SUPABASE_PUBLISHABLE_KEY
+      || env.SUPABASE_ANON_KEY
+      || env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
+      || env.NEXT_PUBLIC_SUPABASE_ANON_KEY)?.trim();
     if (!adminEmail || !adminPassword || adminPassword.length < 16 || !supabaseUrl || !anonKey) {
       send(response, 503, { error: 'Administrator sign-in is not configured.' });
       return;

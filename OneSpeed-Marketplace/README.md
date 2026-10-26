@@ -49,9 +49,19 @@ When prompted, set these environment variables on the Render service:
 - `ADMIN_EMAIL`: the email of the verified, active administrator in Supabase Auth.
 - `ADMIN_PASSWORD`: that administrator's Supabase Auth password; use a unique password of at least 16 characters.
 
-Set both Supabase public values together. They are used by the existing browser client; the admin credentials are read only by a server-side Node endpoint in the Docker Web Service. The admin endpoint compares credentials to the deployment environment, rate-limits attempts, then verifies the resulting Supabase Auth session and database admin role before returning a normal Supabase session. The password itself is never sent back to the browser. `ADMIN_EMAIL` and `ADMIN_PASSWORD` must match the Supabase Auth account; this does not create or promote an admin account. Promotion remains a trusted SQL Editor operation. Missing admin environment settings fail closed for admin sign-in.
+Set both Supabase public values together. Docker Compose also accepts `SUPABASE_URL` with `SUPABASE_PUBLISHABLE_KEY` or `SUPABASE_ANON_KEY`, and the existing Next.js-style `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` names. Explicit `ONESPEED_*` names take precedence. Render's existing `ONESPEED_*` configuration remains supported. The admin endpoint accepts the same aliases server-side. The admin credentials are read only by a server-side Node endpoint in the Docker Web Service. The endpoint rate-limits attempts, verifies the Supabase Auth session and database admin role, and never returns the configured password. `ADMIN_EMAIL` and `ADMIN_PASSWORD` must match the Supabase Auth account; they do not create or promote an admin account. Promotion remains a trusted SQL Editor operation. Missing admin environment settings fail closed for admin sign-in.
 
-Never add a Supabase `service_role` or secret key to Render, browser config, or repository files. The generated public config endpoint is served with `Cache-Control: no-store`.
+`SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_PUBLISHABLE_KEY`, `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, `ONESPEED_SUPABASE_URL`, and `ONESPEED_SUPABASE_ANON_KEY` are public-client configuration (only anon/publishable keys are accepted in browser config). `ADMIN_EMAIL`, `ADMIN_PASSWORD`, and any Supabase secret/service-role key are server-only. This application does not use a Supabase service-role key. Never add a Supabase secret/service-role key to browser config or repository files. The generated public config endpoint is served with `Cache-Control: no-store`.
+
+### Runtime environment variables
+
+- Required for the Supabase-backed customer and marketplace features: one project URL (`ONESPEED_SUPABASE_URL`, `SUPABASE_URL`, or `NEXT_PUBLIC_SUPABASE_URL`) and one public anon/publishable key (`ONESPEED_SUPABASE_ANON_KEY`, `SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_ANON_KEY`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, or `NEXT_PUBLIC_SUPABASE_ANON_KEY`). Both must be set. If neither is configured, Docker deliberately starts in local demo/preview mode.
+- Required only for administrator login: `ADMIN_EMAIL` and `ADMIN_PASSWORD`, server-side, matching an active admin identity in Supabase Auth. They are not needed for customer registration, login, or seller applications.
+- Optional for this app's existing flow: no Supabase secret/service-role variable. `SUPABASE_SECRET_KEY` is not consumed by this static frontend, Docker service, or admin endpoint and must remain server-only if configured elsewhere.
+- Email verification and password reset delivery are configured in Supabase Auth (SMTP/provider, Site URL, and redirect allowlist). `RESEND_API_KEY` and `RESEND_FROM_EMAIL` by themselves do not enable email in this app.
+- This deployment uses Supabase for database and product-image storage. `POSTGRES_*` values without a database host/URL, plus `MEILI_*`, `CLOUDINARY_*`, `SHIPPO_*`, `PAYSTACK_*`, Google Maps, and Sentry variables are not wired into this static deployment; do not rely on those integrations being active. Leaflet/OpenStreetMap delivery selection does not need a map API key.
+
+Configure public runtime values and server-only admin credentials in **Codespaces → Settings → Secrets and variables → Codespaces** or the current Render service's Environment settings; restart/redeploy after changing them. For local Docker only, use the ignored `.env` file based on `.env.example`. The committed example contains names and placeholders only. Validate variable presence with Compose and `docker compose build`; neither command prints credential values when run as documented.
 
 If both Supabase public variables are omitted, the container stays in the existing demo/preview mode; do not use that mode for real customer orders or authentication. Admin login remains unavailable unless its server environment is configured. The same optional variables can be supplied when running `docker compose` locally.
 
@@ -59,14 +69,16 @@ Before using the live site, also:
 
 1. Apply `supabase/schema.sql` to the Supabase project, or apply `supabase/delivery-zones-migration.sql` if the original schema is already installed. Render does not run Supabase migrations.
 2. In Supabase Authentication settings, set the production Site URL to the Render URL (or your custom domain) and add the corresponding login/register redirect URLs.
-3. Configure and verify your admin account, delivery zones/fees and any payment instructions in Supabase before accepting real orders.
-4. Confirm the Supabase project's RLS policies and test the live checkout against a staging project first. Browser requests use the public key and rely on those policies.
+3. To enable password recovery and verification redirects, configure Supabase Auth email delivery/SMTP, set the production Site URL, and allow the exact `/reset-password.html` and `/login.html` redirect URLs. This app requests recovery emails through Supabase Auth; a separately configured `RESEND_API_KEY` alone does not send those messages.
+4. Configure and verify your admin account, delivery zones/fees and any payment instructions in Supabase before accepting real orders.
+5. Confirm the Supabase project's RLS policies and test the live checkout against a staging project first. Browser requests use the public key and rely on those policies.
 
 Render's health check requests `/`. Use Render's generated HTTPS URL initially; a custom domain can be configured later in the Render service settings.
 
 ## Registration, seller onboarding, and admin routes
 
 - Customer registration: `/register.html`. Customers receive the default customer role and can shop without administrator approval. When Supabase email confirmation is enabled, they must verify the email before signing in.
+- Customer login/logout: `/login.html` and the signed-in account controls. Password recovery starts at `/reset-password.html`; email sending and redirect allowlisting must be configured in Supabase Auth.
 - Customer account: `/account.html`; saved addresses `/addresses.html`; wishlist `/wishlist.html`; notifications `/notifications.html`; bank transfer history `/payment-history.html`; support requests `/support.html`. Persistent customer services require Supabase and the operations migration.
 - Seller application and workspace: `/seller.html` (also linked from the signed-in account page). Customers can apply and continue shopping while pending. Rejected applications can be edited and resubmitted. Admin review is in `/admin/users.html`.
 - Administrator login: `/admin/login.html`.
@@ -74,7 +86,7 @@ Render's health check requests `/`. Use Render's generated HTTPS URL initially; 
 
 Admin login requires all four Render variables above. First create and verify the intended administrator in Supabase Auth, promote the profile with the trusted SQL statement in Supabase setup step 5, then configure the matching `ADMIN_EMAIL` and `ADMIN_PASSWORD` in Render. Existing Supabase admin accounts remain in place; do not run a role update for an account unless authorized.
 
-For local Codespaces testing, add the four values under **Codespaces → Settings → Secrets and variables → Codespaces**, then restart the Codespace so they are available to its environment. Alternatively, create a local `OneSpeed-Marketplace/.env` from `.env.example` and fill in local-only test values, then run `cd OneSpeed-Marketplace && docker compose up --build`. Never commit `.env`; it is excluded by both `.dockerignore` and the repository `.gitignore`. Supabase URL and anon key are public client configuration; admin credentials are passed only to the server process.
+For local Codespaces testing, add the four Render values under **Codespaces → Settings → Secrets and variables → Codespaces**, then restart the Codespace so they are available to its environment. Alternatively, create a local `OneSpeed-Marketplace/.env` from `.env.example` and fill in local-only test values, then run `cd OneSpeed-Marketplace && docker compose up --build`. Never commit `.env`; it is excluded by `.dockerignore` and the repository ignore rules. Supabase URL and anon/publishable key are public client configuration; admin credentials are passed only to the server process. Configure any production email delivery separately in Supabase Auth settings.
 
 Run the regression tests and build the production Docker image with:
 
