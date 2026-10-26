@@ -50,6 +50,12 @@ test('production Nginx sends baseline browser security headers without blocking 
   assert.match(nginx, /img-src 'self' data: blob: https:/);
 });
 
+test('production HTML, JavaScript and CSS revalidate after deploys instead of retaining stale immutable bundles', () => {
+  const nginx = read('nginx.conf');
+  assert.match(nginx, /location ~\* \\\.\(html\|css\|js\)\$ \{[\s\S]*?add_header Cache-Control "no-cache" always;/);
+  assert.match(nginx, /location ~\* \\\.\(jpg\|jpeg\|png\|webp\|gif\|ico\|svg\|woff2\?\)\$ \{[\s\S]*?expires 7d;[\s\S]*?public, immutable/);
+});
+
 test('public pages and shared navigation do not link to or reveal the administrator login', () => {
   const publicPages = htmlFiles().filter(file => !file.startsWith(path.join(project, 'admin') + path.sep));
   for (const page of publicPages) {
