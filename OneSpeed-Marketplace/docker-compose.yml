@@ -1,11 +1,12 @@
-version: "3.9"
-
 services:
   onespeed:
     build: .
     container_name: onespeed-marketplace
     ports:
       - "8080:80"
+    environment:
+      ONESPEED_SUPABASE_URL: ${ONESPEED_SUPABASE_URL:-}
+      ONESPEED_SUPABASE_ANON_KEY: ${ONESPEED_SUPABASE_ANON_KEY:-}
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1/"]

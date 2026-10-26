@@ -4,6 +4,10 @@ FROM nginx:1.27-alpine
 # Copy nginx configuration
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 
+# Write the public Supabase client config from Render runtime environment variables.
+COPY docker-entrypoint.d/40-onespeed-supabase-config.sh /docker-entrypoint.d/40-onespeed-supabase-config.sh
+RUN chmod 755 /docker-entrypoint.d/40-onespeed-supabase-config.sh
+
 # Copy the entire marketplace
 COPY . /usr/share/nginx/html/
 
@@ -14,6 +18,7 @@ RUN rm -f /usr/share/nginx/html/Dockerfile \
          /usr/share/nginx/html/.dockerignore \
          /usr/share/nginx/html/.env.example \
          /usr/share/nginx/html/nginx.conf \
+    && rm -rf /usr/share/nginx/html/docker-entrypoint.d \
     && rm -rf /usr/share/nginx/html/docker
 
 # Health check

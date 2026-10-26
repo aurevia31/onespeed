@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: onespeed-marketplace
+    runtime: docker
+    dockerfilePath: ./OneSpeed-Marketplace/Dockerfile
+    dockerContext: ./OneSpeed-Marketplace
+    healthCheckPath: /
+    envVars:
+      - key: ONESPEED_SUPABASE_URL
+        sync: false
+      - key: ONESPEED_SUPABASE_ANON_KEY
+        sync: false

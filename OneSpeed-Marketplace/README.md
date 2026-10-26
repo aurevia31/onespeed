@@ -15,7 +15,7 @@ Open `http://localhost:8080`. Without Supabase configured, the original local de
 1. Create a Supabase project and configure Authentication email confirmation, password rules, production Site URL, redirect URLs and SMTP.
 2. In Supabase SQL Editor, run `supabase/schema.sql` in one go. It creates profiles, seller stores, categories, products, orders, order items, bank transfer submissions, seller payouts, reviews, support tickets, audit logs, RLS policies, storage buckets, and transactional RPCs.
    If the original schema is already installed, run `supabase/delivery-zones-migration.sql` instead to add the delivery-zone table and update the order/fee RPCs.
-3. Copy the project URL and the **publishable/anon key only** into `js/supabase-config.js`:
+3. For local static preview, the Supabase configuration can be entered in `js/supabase-config.js`. For Docker or Render, use the runtime environment variables described below instead:
 
    ```js
    window.ONESPEED_SUPABASE_CONFIG = {
@@ -36,6 +36,28 @@ Open `http://localhost:8080`. Without Supabase configured, the original local de
 
 6. Configure the bank transfer instructions (bank name, account name, account number, supported currency and reference format) in a trusted business configuration before accepting payments. This repo intentionally does not invent bank details. Transfer submissions remain unpaid until an admin verifies the money has actually arrived and approves the submission in `admin/bank-transfers.html`.
 7. Set up production hosting with HTTPS, correct SPA/static routes, security headers, monitoring, backups and a verified domain.
+
+## Deploy to Render
+
+This repository includes a root-level `render.yaml` Blueprint for the existing Docker/Nginx site. In Render, create a **Blueprint** from this GitHub repository and select the branch to deploy. Render reads the Blueprint and builds the Dockerfile from `OneSpeed-Marketplace/`; do not create a separate app or replace the existing site.
+
+When prompted, set these two environment variables on the Render service:
+
+- `ONESPEED_SUPABASE_URL`: your Supabase project URL, for example `https://YOUR-PROJECT.supabase.co`.
+- `ONESPEED_SUPABASE_ANON_KEY`: the project's **public anon/publishable key**.
+
+Both values must be set together. Container startup writes them into the browser's Supabase client configuration and refuses to start if only one is present or either value is malformed. Only public client credentials belong here; never add a Supabase `service_role` or secret key. The generated config endpoint is served with `Cache-Control: no-store`, so changing Render variables takes effect after redeploy without a stale browser config.
+
+If both variables are omitted, the container stays in the existing demo/preview mode; do not use that mode for real customer orders or authentication. The same optional variables can be supplied when running `docker compose` locally.
+
+Before using the live site, also:
+
+1. Apply `supabase/schema.sql` to the Supabase project, or apply `supabase/delivery-zones-migration.sql` if the original schema is already installed. Render does not run Supabase migrations.
+2. In Supabase Authentication settings, set the production Site URL to the Render URL (or your custom domain) and add the corresponding login/register redirect URLs.
+3. Configure and verify your admin account, delivery zones/fees and any payment instructions in Supabase before accepting real orders.
+4. Confirm the Supabase project's RLS policies and test the live checkout against a staging project first. Browser requests use the public key and rely on those policies.
+
+Render's health check requests `/`. Use Render's generated HTTPS URL initially; a custom domain can be configured later in the Render service settings.
 
 ## New backend foundation
 
