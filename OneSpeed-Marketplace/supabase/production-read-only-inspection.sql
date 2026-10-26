@@ -32,7 +32,17 @@ from information_schema.tables
 where table_schema = 'public'
 order by table_type, table_name;
 
--- 4. Inspect columns for all public application tables. This is intentionally
+-- 4. Approximate row counts for existing public tables. reltuples is a
+-- planner estimate, not an exact count; -1 means statistics are unavailable.
+select c.relname as table_name,
+       case when c.reltuples < 0 then null else c.reltuples::bigint end as estimated_rows
+from pg_class c
+join pg_namespace n on n.oid = c.relnamespace
+where n.nspname = 'public'
+  and c.relkind in ('r', 'p')
+order by c.relname;
+
+-- 5. Inspect columns for all public application tables. This is intentionally
 -- broad so partial installs and unrelated existing application tables are visible.
 select table_name, ordinal_position, column_name, data_type, udt_name,
        is_nullable, column_default, is_generated, generation_expression
@@ -40,7 +50,7 @@ from information_schema.columns
 where table_schema = 'public'
 order by table_name, ordinal_position;
 
--- 5. Compare the storefront's selected product columns with the actual table.
+-- 6. Compare the storefront's selected product columns with the actual table.
 -- This is a catalog-only check; it reads no product records.
 with expected(column_name, expected_type) as (
   values
@@ -67,7 +77,7 @@ left join information_schema.columns actual
  and actual.column_name = expected.column_name
 order by expected.column_name;
 
--- 6. Primary keys, unique constraints, checks, and foreign keys in public.
+-- 7. Primary keys, unique constraints, checks, and foreign keys in public.
 select table_name, constraint_name, constraint_type,
        is_deferrable, initially_deferred
 from information_schema.table_constraints
@@ -80,7 +90,8 @@ where constraint_schema = 'public'
   )
 order by table_name, constraint_type, constraint_name;
 
-select tc.table_name, tc.constraint_name, kcu.column_name,
+select tc.table_name, tc.constraint_name, tc.constraint_type,
+       kcu.ordinal_position, kcu.column_name,
        ccu.table_name as referenced_table, ccu.column_name as referenced_column
 from information_schema.table_constraints tc
 join information_schema.key_column_usage kcu
@@ -91,10 +102,10 @@ join information_schema.constraint_column_usage ccu
   on ccu.constraint_schema = tc.constraint_schema
  and ccu.constraint_name = tc.constraint_name
 where tc.constraint_schema = 'public'
-  and tc.constraint_type = 'FOREIGN KEY'
+  and tc.constraint_type in ('PRIMARY KEY', 'FOREIGN KEY')
 order by tc.table_name, tc.constraint_name, kcu.ordinal_position;
 
--- 7. Indexes and definitions for relevant public tables.
+-- 8. Indexes and definitions for relevant public tables.
 select tablename, indexname, indexdef
 from pg_indexes
 where schemaname = 'public'
@@ -106,7 +117,7 @@ where schemaname = 'public'
   )
 order by tablename, indexname;
 
--- 8. RLS status, including whether RLS is forced.
+-- 9. RLS status, including whether RLS is forced.
 select n.nspname as schema_name, c.relname as table_name,
        c.relrowsecurity as rls_enabled, c.relforcerowsecurity as rls_forced
 from pg_class c
@@ -115,13 +126,13 @@ where n.nspname = 'public'
   and c.relkind in ('r', 'p')
 order by c.relname;
 
--- 9. Existing RLS policies, roles, commands, USING and WITH CHECK expressions.
+-- 10. Existing RLS policies, roles, commands, USING and WITH CHECK expressions.
 select schemaname, tablename, policyname, permissive, roles, cmd, qual, with_check
 from pg_policies
 where schemaname in ('public', 'storage')
 order by schemaname, tablename, policyname;
 
--- 10. Triggers and their definitions for marketplace tables.
+-- 11. Triggers and their definitions for marketplace tables.
 select n.nspname as schema_name, c.relname as table_name, t.tgname as trigger_name,
        pg_get_triggerdef(t.oid, true) as trigger_definition
 from pg_trigger t
@@ -131,7 +142,7 @@ where not t.tgisinternal
   and n.nspname in ('public', 'auth', 'storage')
 order by n.nspname, c.relname, t.tgname;
 
--- 11. Marketplace functions, including SECURITY DEFINER definitions.
+-- 12. Marketplace functions, including SECURITY DEFINER definitions.
 select n.nspname as schema_name, p.proname as function_name,
        pg_get_function_identity_arguments(p.oid) as arguments,
        p.prosecdef as security_definer,
@@ -157,7 +168,7 @@ where n.nspname = 'public'
   )
 order by p.proname, arguments;
 
--- 12. Grants relevant to public storefront reads. NULL means the table does
+-- 13. Grants relevant to public storefront reads. NULL means the table does
 -- not physically exist under public at inspection time.
 select role_name,
        case when to_regclass('public.products') is null then null
@@ -168,13 +179,13 @@ select role_name,
        end as can_select_categories
 from (values ('anon'::name), ('authenticated'::name)) roles(role_name);
 
--- 13. Storage buckets and object policies (no file contents are read).
+-- 14. Storage buckets and object policies (no file contents are read).
 select id, name, public, file_size_limit, allowed_mime_types
 from storage.buckets
 where id in ('product-images', 'transfer-proofs')
 order by id;
 
--- 14. Migration tracking table presence. Supabase SQL Editor runs may not be
+-- 15. Migration tracking table presence. Supabase SQL Editor runs may not be
 -- recorded in CLI migration history; do not treat an empty history as proof
 -- that no SQL was previously applied.
 select to_regclass('supabase_migrations.schema_migrations') as migration_history_table;

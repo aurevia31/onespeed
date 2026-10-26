@@ -242,11 +242,14 @@ test('production database inspection script contains only read-only queries', ()
   const uncommented = inspection.replace(/--[^\n]*/g, '');
   const statements = uncommented.split(';').map(statement => statement.trim()).filter(Boolean);
 
-  assert.ok(statements.length >= 14, 'inspection should cover all numbered catalog checks');
+  assert.ok(statements.length >= 15, 'inspection should cover all numbered catalog checks');
   for (const statement of statements) {
     assert.match(statement, /^(select|with)\b/i, 'each executable statement must be a SELECT/CTE');
   }
   assert.match(inspection, /information_schema\.columns/);
+  assert.match(inspection, /estimated_rows/);
+  assert.match(inspection, /reltuples/);
+  assert.match(inspection, /constraint_type in \('PRIMARY KEY', 'FOREIGN KEY'\)/);
   assert.match(inspection, /pg_policies/);
   assert.match(inspection, /pg_get_triggerdef/);
   assert.match(inspection, /pg_get_functiondef/);
