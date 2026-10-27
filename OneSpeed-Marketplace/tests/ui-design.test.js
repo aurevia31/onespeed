@@ -38,7 +38,7 @@ test('Next.js migration keeps legacy customer routes but does not publish protec
 
 test('all customer, seller, auth, and admin pages use the shared design system', () => {
   const pages = htmlFiles();
-  assert.equal(pages.length, 29);
+  assert.equal(pages.length, 30);
 
   for (const page of pages) {
     const source = fs.readFileSync(page, 'utf8');

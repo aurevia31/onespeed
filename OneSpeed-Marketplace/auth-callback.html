@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Confirm Account – OneSpeed Market</title>
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <header class="header" id="site-header"></header>
+  <main class="container">
+    <div class="auth-container">
+      <section class="card auth-card">
+        <h1>Account confirmation</h1>
+        <p id="auth-callback-status" class="text-center mt-3" role="status" aria-live="polite">
+          Checking your confirmation link…
+        </p>
+        <p class="text-center mt-3">
+          <a id="auth-callback-login" href="login.html" style="color:var(--primary-dark);font-weight:700;">Continue to login</a>
+        </p>
+      </section>
+    </div>
+  </main>
+  <footer class="footer" id="site-footer"></footer>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="js/supabase-config.js"></script>
+  <script src="js/supabase.js"></script>
+  <script src="js/data.js"></script>
+  <script src="js/app.js"></script>
+  <script>
+    (async () => {
+      const status = document.getElementById('auth-callback-status');
+      const login = document.getElementById('auth-callback-login');
+      const params = new URLSearchParams(location.search);
+      const redirect = params.get('redirect');
+      if (redirect) login.href = `login.html?redirect=${encodeURIComponent(redirect)}`;
+
+      try {
+        if (params.has('error') || params.has('error_description')) {
+          throw new Error('Confirmation link was not accepted.');
+        }
+        if (!window.OneSpeedBackend?.configured()) {
+          throw new Error('Authentication is unavailable. Please open this link from the configured OneSpeed site.');
+        }
+        const user = await OneSpeedBackend.currentUser();
+        if (!user?.email_confirmed_at) {
+          throw new Error('This link may have expired or already been used. Request a new confirmation email.');
+        }
+        status.textContent = 'Your email is confirmed. You can now sign in.';
+      } catch (error) {
+        status.textContent = error.message || 'We could not confirm this account. Request a new confirmation email.';
+      } finally {
+        history.replaceState(null, '', location.pathname);
+      }
+    })();
+  </script>
+</body>
+</html>

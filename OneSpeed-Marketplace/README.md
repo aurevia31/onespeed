@@ -99,8 +99,8 @@ If both Supabase public variables are omitted, the container stays in the existi
 Before using the live site, also:
 
 1. Apply `supabase/schema.sql` to the Supabase project, or apply `supabase/delivery-zones-migration.sql` if the original schema is already installed. Render does not run Supabase migrations.
-2. In Supabase Authentication settings, set the production Site URL to the Render URL (or your custom domain) and add the corresponding login/register redirect URLs.
-3. To enable password recovery and verification redirects, configure Supabase Auth email delivery/SMTP, set the production Site URL, and allow the exact `/reset-password.html` and `/login.html` redirect URLs. This app requests recovery emails through Supabase Auth; a separately configured `RESEND_API_KEY` alone does not send those messages.
+2. In Supabase Authentication settings, set the production Site URL to the Render URL (or your custom domain) and add the exact confirmation callback URL (`https://YOUR-SITE/auth-callback.html`) and password-reset URL (`https://YOUR-SITE/reset-password.html`) to the redirect allow list. For local development, add the matching `http://localhost:3000/auth-callback.html` and `http://localhost:3000/reset-password.html` URLs.
+3. To enable password recovery and verification redirects, configure Supabase Auth email delivery/SMTP, set the production Site URL, and allow the confirmation callback and reset URLs from step 2. Signup confirmation returns to `/auth-callback.html`, which checks the authenticated user and reports whether confirmation succeeded. This app requests recovery emails through Supabase Auth; a separately configured `RESEND_API_KEY` alone does not send those messages.
 4. Configure and verify your admin account, delivery zones/fees and any payment instructions in Supabase before accepting real orders.
 5. Confirm the Supabase project's RLS policies and test the live checkout against a staging project first. Browser requests use the public key and rely on those policies.
 
@@ -108,7 +108,7 @@ Render's health check requests `/`. Use Render's generated HTTPS URL initially; 
 
 ## Registration, seller onboarding, and admin routes
 
-- Customer registration: `/register.html`. Customers receive the default customer role and can shop without administrator approval. When Supabase email confirmation is enabled, they must confirm the email before signing in; disable **Confirm email** in the Dashboard for immediate signup.
+- Customer registration: `/register.html`. Customers receive the default customer role and can shop without administrator approval. When Supabase email confirmation is enabled, the confirmation email returns to `/auth-callback.html`; they must confirm the email before signing in. Disable **Confirm email** in the Dashboard for immediate signup.
 - Customer login/logout: `/login.html` and the signed-in account controls. Password recovery starts at `/reset-password.html`; email sending and redirect allowlisting must be configured in Supabase Auth.
 - Customer account: `/account.html`; saved addresses `/addresses.html`; wishlist `/wishlist.html`; notifications `/notifications.html`; bank transfer history `/payment-history.html`; support requests `/support.html`. Persistent customer services require Supabase and the operations migration.
 - Seller application and workspace: `/seller.html` (also linked from the signed-in account page). Customers can apply and continue shopping while pending. Rejected applications can be edited and resubmitted.

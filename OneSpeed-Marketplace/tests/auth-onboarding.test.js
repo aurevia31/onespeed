@@ -46,14 +46,14 @@ test('customer registration omits any client-selectable role', async () => {
     email: 'customer@example.test',
     password: 'customer-password',
     name: 'New Customer',
-    emailRedirectTo: 'https://onespeed.example/login.html',
+    emailRedirectTo: 'https://onespeed.example/auth-callback.html',
     role: 'admin'
   });
   assert.deepEqual(JSON.parse(JSON.stringify(signupArgs.options.data)), {
     full_name: 'New Customer',
     phone: ''
   });
-  assert.equal(signupArgs.options.emailRedirectTo, 'https://onespeed.example/login.html');
+  assert.equal(signupArgs.options.emailRedirectTo, 'https://onespeed.example/auth-callback.html');
   assert.doesNotMatch(read('register.html'), /name="accountType"/);
   await window.OneSpeedBackend.applySellerApplication({
     storeName: 'Forest Goods',
@@ -71,11 +71,52 @@ test('signup messages do not claim an email was sent and document the Auth confi
   const login = read('login.html');
   const registration = read('register.html');
   const readme = read('README.md');
+  const callback = read('auth-callback.html');
   assert.doesNotMatch(login, /Please verify your email using the link we sent/);
   assert.doesNotMatch(registration, /Check your email to verify your address/);
   assert.match(registration, /Disable email confirmation in Supabase Auth settings/);
+  assert.match(registration, /auth-callback\.html/);
+  assert.match(callback, /OneSpeedBackend\.currentUser/);
+  assert.match(callback, /email_confirmed_at/);
+  assert.match(callback, /Request a new confirmation email/);
   assert.match(readme, /turn off \*\*Confirm email\*\*/);
+  assert.match(readme, /localhost:3000\/auth-callback\.html/);
   assert.match(readme, /repository's checked-in browser URL\/key are blank/);
+});
+
+test('confirmation callback verifies the signed-in user and rejects Supabase callback errors', async () => {
+  const callback = read('auth-callback.html');
+  const script = [...callback.matchAll(/<script>([\s\S]*?)<\/script>/g)].at(-1)?.[1];
+  assert.ok(script, 'callback page should contain its confirmation handler');
+
+  async function run(search, user) {
+    const elements = {
+      'auth-callback-status': { textContent: '' },
+      'auth-callback-login': { href: 'login.html' }
+    };
+    const calls = [];
+    const backend = {
+      configured: () => true,
+      async currentUser() { return user; }
+    };
+    vm.runInNewContext(script, {
+      document: { getElementById: id => elements[id] },
+      location: { search, pathname: '/auth-callback.html' },
+      history: { replaceState: (...args) => calls.push(args) },
+      URLSearchParams,
+      window: { OneSpeedBackend: backend },
+      OneSpeedBackend: backend
+    });
+    await new Promise(resolve => setImmediate(resolve));
+    return { elements, calls };
+  }
+
+  const confirmed = await run('', { email_confirmed_at: '2026-10-27T06:00:00Z' });
+  assert.equal(confirmed.elements['auth-callback-status'].textContent, 'Your email is confirmed. You can now sign in.');
+  assert.equal(confirmed.calls.length, 1);
+
+  const failed = await run('?error=access_denied', null);
+  assert.equal(failed.elements['auth-callback-status'].textContent, 'Confirmation link was not accepted.');
 });
 
 test('missing Supabase auth session is treated as a signed-out visitor, while other auth errors propagate', async () => {

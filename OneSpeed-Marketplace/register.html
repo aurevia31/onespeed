@@ -62,7 +62,7 @@
             email: String(fd.get('email')).trim(),
             phone: String(fd.get('phone') || '').trim(),
             password: String(fd.get('password')),
-            emailRedirectTo: `${location.origin}/login.html`
+            emailRedirectTo: `${location.origin}/auth-callback.html`
           });
           if (result.session) {
             OSM.toast('Account created. You can start shopping now.');
