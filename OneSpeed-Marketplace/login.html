@@ -58,7 +58,7 @@
           setTimeout(() => location.href = getSafeLocalRedirect(getQueryParam('redirect'), fallback), 500);
         } catch (err) {
           const message = /email not confirmed/i.test(err.message || '')
-            ? 'Please verify your email using the link we sent before signing in.'
+            ? "This account's email is not confirmed. Supabase Auth currently requires confirmation before sign-in."
             : err.message || 'Unable to sign in.';
           OSM.toast(message);
         }

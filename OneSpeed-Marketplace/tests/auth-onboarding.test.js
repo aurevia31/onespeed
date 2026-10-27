@@ -67,6 +67,17 @@ test('customer registration omits any client-selectable role', async () => {
   assert.equal(applicationRpc.args.p_address.store_address, 'Lagos');
 });
 
+test('signup messages do not claim an email was sent and document the Auth confirmation gate', () => {
+  const login = read('login.html');
+  const registration = read('register.html');
+  const readme = read('README.md');
+  assert.doesNotMatch(login, /Please verify your email using the link we sent/);
+  assert.doesNotMatch(registration, /Check your email to verify your address/);
+  assert.match(registration, /Disable email confirmation in Supabase Auth settings/);
+  assert.match(readme, /turn off \*\*Confirm email\*\*/);
+  assert.match(readme, /repository's checked-in browser URL\/key are blank/);
+});
+
 test('missing Supabase auth session is treated as a signed-out visitor, while other auth errors propagate', async () => {
   let authError = { name: 'AuthSessionMissingError', message: 'Auth session missing!' };
   const window = {

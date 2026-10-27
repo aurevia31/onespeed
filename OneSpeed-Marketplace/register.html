@@ -68,7 +68,7 @@
             OSM.toast('Account created. You can start shopping now.');
             setTimeout(() => location.href = 'account.html', 900);
           } else {
-            OSM.toast('Account created. Check your email to verify your address, then sign in.');
+            OSM.toast('Account created, but Supabase Auth currently requires email confirmation. Disable email confirmation in Supabase Auth settings to allow immediate sign-in.');
             setTimeout(() => location.href = 'login.html', 1500);
           }
         } catch (err) { OSM.toast(err.message || 'Unable to create account.'); }

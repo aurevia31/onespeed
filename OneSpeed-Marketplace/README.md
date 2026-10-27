@@ -24,7 +24,7 @@ Open `http://localhost:3000`. The Next.js root route is the new marketplace land
 
 ## Supabase setup
 
-1. Create a Supabase project and configure Authentication email confirmation, password rules, production Site URL, redirect URLs and SMTP.
+1. Create a Supabase project and configure password rules, production Site URL, redirect URLs and email delivery. To let customers register and sign in immediately without email verification, turn off **Confirm email** in the Supabase Dashboard under **Authentication → Sign In / Providers → Email**. This is a project-wide Auth setting that also applies to seller applicants; the browser app cannot change it. With confirmation enabled, Supabase blocks sign-in until the address is confirmed.
 2. Before installing or repairing any production schema, follow [Safe production database inspection and recovery](#safe-production-database-inspection-and-recovery). Do not infer that the database is empty from a failed product query.
 3. For a **new, verified empty project only**, open that project's SQL Editor and run `supabase/schema.sql`, followed by `supabase/marketplace-operations-migration.sql`. The base schema has a transaction and aborts before making changes if any OneSpeed core table exists. Do not run it on an existing or partially initialized project.
 4. For an existing project, inspect its objects first and use only a migration reviewed for that exact state. The delivery-zone, auth-onboarding, and marketplace-operations scripts are not a universal repair for an unknown partial schema; each has prerequisites.
@@ -38,7 +38,7 @@ Open `http://localhost:3000`. The Next.js root route is the new marketplace land
    ```
 
    Never use a `service_role` key in browser code or commit private secrets.
-6. Customers can register and shop without administrator approval. Customers submit seller applications from `/seller.html`; approval is required before seller-only actions, and database RLS enforces that gate.
+6. Customers can register and shop without administrator approval. Customers submit seller applications from `/seller.html`; approval is required before seller-only actions, and database RLS enforces that gate. With **Confirm email** disabled, customer signup returns an active session immediately. Seller applicants use the same customer signup and Auth confirmation policy.
 7. Promote the first administrator from SQL Editor after the intended admin has created and verified their Supabase Auth account (replace the email). This is a trusted, one-time operator action; never expose this operation to browser users:
 
    ```sql
@@ -89,7 +89,7 @@ Set both Supabase public values together. Docker Compose also accepts `SUPABASE_
 - Required for the Supabase-backed customer and marketplace features: one project URL (`ONESPEED_SUPABASE_URL`, `SUPABASE_URL`, or `NEXT_PUBLIC_SUPABASE_URL`) and one public anon/publishable key (`ONESPEED_SUPABASE_ANON_KEY`, `SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_ANON_KEY`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, or `NEXT_PUBLIC_SUPABASE_ANON_KEY`). Both must be set. If neither is configured, Docker deliberately starts in local demo/preview mode.
 - Required only for administrator login: `ADMIN_EMAIL` and `ADMIN_PASSWORD`, server-side, matching an active admin identity in Supabase Auth. They are not needed for customer registration, login, or seller applications.
 - Optional for this app's existing flow: no Supabase secret/service-role variable. `SUPABASE_SECRET_KEY` is not consumed by this static frontend, Docker service, or admin endpoint and must remain server-only if configured elsewhere.
-- Email verification and password reset delivery are configured in Supabase Auth (SMTP/provider, Site URL, and redirect allowlist). `RESEND_API_KEY` and `RESEND_FROM_EMAIL` by themselves do not enable email in this app.
+- Email verification and password reset delivery are configured in Supabase Auth (SMTP/provider, Site URL, and redirect allowlist). This repository's checked-in browser URL/key are blank until configured, so the app cannot currently reach a Supabase project from that default config. `RESEND_API_KEY` and `RESEND_FROM_EMAIL` by themselves do not enable email in this app.
 - This deployment uses Supabase for database and product-image storage. `POSTGRES_*` values without a database host/URL, plus `MEILI_*`, `CLOUDINARY_*`, `SHIPPO_*`, `PAYSTACK_*`, Google Maps, and Sentry variables are not wired into this static deployment; do not rely on those integrations being active. Leaflet/OpenStreetMap delivery selection does not need a map API key.
 
 Configure public runtime values and server-only admin credentials in **Codespaces → Settings → Secrets and variables → Codespaces** or the current Render service's Environment settings; restart/redeploy after changing them. For local Docker only, use the ignored `.env` file based on `.env.example`. The committed example contains names and placeholders only. Validate variable presence with Compose and `docker compose build`; neither command prints credential values when run as documented.
@@ -108,7 +108,7 @@ Render's health check requests `/`. Use Render's generated HTTPS URL initially; 
 
 ## Registration, seller onboarding, and admin routes
 
-- Customer registration: `/register.html`. Customers receive the default customer role and can shop without administrator approval. When Supabase email confirmation is enabled, they must verify the email before signing in.
+- Customer registration: `/register.html`. Customers receive the default customer role and can shop without administrator approval. When Supabase email confirmation is enabled, they must confirm the email before signing in; disable **Confirm email** in the Dashboard for immediate signup.
 - Customer login/logout: `/login.html` and the signed-in account controls. Password recovery starts at `/reset-password.html`; email sending and redirect allowlisting must be configured in Supabase Auth.
 - Customer account: `/account.html`; saved addresses `/addresses.html`; wishlist `/wishlist.html`; notifications `/notifications.html`; bank transfer history `/payment-history.html`; support requests `/support.html`. Persistent customer services require Supabase and the operations migration.
 - Seller application and workspace: `/seller.html` (also linked from the signed-in account page). Customers can apply and continue shopping while pending. Rejected applications can be edited and resubmitted.
