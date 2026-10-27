@@ -222,7 +222,11 @@ test('Nginx protects all admin workspace routes and leaves only its login route 
 
 test('production container generates Supabase client config before starting the app', () => {
   const dockerfile = read('Dockerfile');
+  const dockerignore = read('.dockerignore');
   assert.match(dockerfile, /40-onespeed-supabase-config\.sh && exec node \/opt\/onespeed\/admin-auth-server\.js/);
+  assert.match(dockerignore, /^\*\*\/\.env$/m);
+  assert.match(dockerignore, /^\.env\.\*/m);
+  assert.match(dockerignore, /^\*\*\/\.env\.\*/m);
 });
 
 test('catalog filters are wired and product metrics are not fabricated', () => {
@@ -268,6 +272,9 @@ test('production database inspection script contains only read-only queries', ()
     assert.match(statement, /^(select|with)\b/i, 'each executable statement must be a SELECT/CTE');
   }
   assert.match(inspection, /information_schema\.columns/);
+  assert.match(inspection, /from pg_catalog\.pg_class c/);
+  assert.match(inspection, /join pg_catalog\.pg_namespace n/);
+  assert.match(inspection, /n\.nspname !~ '\^pg_'/);
   assert.match(inspection, /estimated_rows/);
   assert.match(inspection, /reltuples/);
   assert.match(inspection, /constraint_type in \('PRIMARY KEY', 'FOREIGN KEY'\)/);

@@ -1,4 +1,7 @@
 backups
 .env
+.env.*
+**/.env
+**/.env.*
 .git
 next-app

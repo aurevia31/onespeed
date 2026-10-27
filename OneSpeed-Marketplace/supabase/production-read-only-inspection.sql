@@ -26,11 +26,25 @@ select expected.installation_group,
 from expected
 order by installation_group, table_name;
 
--- 3. Inventory all existing public tables, views and materialized views.
-select table_name, table_type
-from information_schema.tables
-where table_schema = 'public'
-order by table_type, table_name;
+-- 3. Inventory tables and views in all non-system schemas. Unlike
+-- information_schema.tables, pg_catalog relations are not filtered by object
+-- privileges, so this can distinguish an empty public schema from objects
+-- hidden by the current SQL Editor role or installed in another schema.
+select n.nspname as schema_name,
+       c.relname as object_name,
+       case c.relkind
+         when 'r' then 'table'
+         when 'p' then 'partitioned table'
+         when 'v' then 'view'
+         when 'm' then 'materialized view'
+         when 'f' then 'foreign table'
+       end as object_type
+from pg_catalog.pg_class c
+join pg_catalog.pg_namespace n on n.oid = c.relnamespace
+where n.nspname <> 'information_schema'
+  and n.nspname !~ '^pg_'
+  and c.relkind in ('r', 'p', 'v', 'm', 'f')
+order by n.nspname, c.relkind, c.relname;
 
 -- 4. Approximate row counts for existing public tables. reltuples is a
 -- planner estimate, not an exact count; -1 means statistics are unavailable.
